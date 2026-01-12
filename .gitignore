@@ -1,0 +1,21 @@
+# Environment
+.env
+
+# Results (generated)
+results/*.json
+results/run_*/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+servers/swerver/swerver-src/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

@@ -1,0 +1,135 @@
+version: "3.8"
+
+x-server-defaults: &server-defaults
+  deploy:
+    resources:
+      limits:
+        cpus: "${BENCHMARK_CPUS:-2}"
+        memory: "${BENCHMARK_MEMORY:-512m}"
+  cpus: "${BENCHMARK_CPUS:-2}"
+  mem_limit: "${BENCHMARK_MEMORY:-512m}"
+  networks:
+    - benchmark
+  restart: "no"
+
+services:
+  # ============================================================
+  # Servers Under Test
+  # ============================================================
+
+  swerver:
+    <<: *server-defaults
+    build:
+      context: ./servers/swerver
+      args:
+        SWERVER_REF: "${SWERVER_REF:-main}"
+        SWERVER_REPO: "${SWERVER_REPO:-https://github.com/justin/swerver.git}"
+        SWERVER_LOCAL_PATH: "1"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  nginx:
+    <<: *server-defaults
+    build:
+      context: ./servers/nginx
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  httpzig:
+    <<: *server-defaults
+    build:
+      context: ./servers/http-zig
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  actix:
+    <<: *server-defaults
+    build:
+      context: ./servers/actix
+    ports:
+      - "8083:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # ============================================================
+  # Load Generator
+  # ============================================================
+
+  k6:
+    build:
+      context: ./k6
+    environment:
+      - K6_VUS=${K6_VUS:-100}
+      - K6_DURATION=${K6_DURATION:-30s}
+      - TARGET_HOST=${TARGET_HOST:-swerver}
+      - TARGET_PORT=${TARGET_PORT:-8080}
+    volumes:
+      - ./k6/scenarios:/scenarios:ro
+      - ./results:/results
+    networks:
+      - benchmark
+    depends_on:
+      swerver:
+        condition: service_healthy
+      nginx:
+        condition: service_healthy
+      httpzig:
+        condition: service_healthy
+      actix:
+        condition: service_healthy
+    profiles:
+      - benchmark
+
+  # ============================================================
+  # Monitoring (optional)
+  # ============================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - benchmark
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - benchmark
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+
+networks:
+  benchmark:
+    driver: bridge
