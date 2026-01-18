@@ -1,7 +1,7 @@
 const std = @import("std");
 const posix = std.posix;
 
-const BlobSize = 1024 * 1024;
+const BlobSize = 8 * 1024;
 const HeaderBufSize = 16 * 1024;
 
 const Errors = error{

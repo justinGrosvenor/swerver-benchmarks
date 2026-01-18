@@ -12,7 +12,7 @@ COPY config/nginx.conf /etc/nginx/nginx.conf
 # Create benchmark response files
 RUN mkdir -p /var/www/html && \
     echo -n '{"status":"ok"}' > /var/www/html/echo.json && \
-    dd if=/dev/zero of=/var/www/html/blob.bin bs=1M count=1 2>/dev/null
+    dd if=/dev/zero of=/var/www/html/blob.bin bs=8K count=1 2>/dev/null
 
 EXPOSE 8080
 

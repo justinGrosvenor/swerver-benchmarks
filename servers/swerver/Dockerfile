@@ -2,7 +2,7 @@
 FROM debian:bookworm-slim AS builder
 
 # Install Zig and build tools
-ARG ZIG_PACKAGE=zig-aarch64-linux-0.16.0-dev.2040+c475f1fcd
+ARG ZIG_PACKAGE=zig-aarch64-linux-0.16.0-dev.2135+7c0b42ba0
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl xz-utils git libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \

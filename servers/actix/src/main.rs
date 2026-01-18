@@ -1,6 +1,6 @@
 use actix_web::{body::BoxBody, http::header, web, App, HttpResponse, HttpServer};
 
-const BLOB_SIZE: usize = 1024 * 1024;
+const BLOB_SIZE: usize = 8 * 1024;
 static BLOB: [u8; BLOB_SIZE] = [0; BLOB_SIZE];
 
 #[actix_web::main]

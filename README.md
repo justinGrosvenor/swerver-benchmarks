@@ -52,7 +52,7 @@ All servers must implement these endpoints:
 | `/health` | GET | 200, empty body |
 | `/echo` | GET | 200, `{"status":"ok"}` |
 | `/echo` | POST | 200, echo request body |
-| `/blob` | GET | 200, 1MB zeros |
+| `/blob` | GET | 200, 8KB zeros |
 
 Swerver has these built-in as of the latest version.
 
@@ -178,12 +178,10 @@ Realistic traffic pattern with varied request types.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| swerver | 1,958 | 0.37 ms | 0.97 ms | 0.1%* |
-| **nginx** | 1,945 | 0.83 ms | 1.92 ms | 0% |
-| actix | 1,941 | 0.89 ms | 2.10 ms | 0% |
-| http-zig | 1,940 | 0.95 ms | 1.99 ms | 0% |
-
-*Swerver errors are 404s from unimplemented POST /echo endpoint.
+| **actix** | 1,951 | 0.54 ms | 1.60 ms | 0% |
+| **nginx** | 1,948 | 0.56 ms | 1.40 ms | 0% |
+| **swerver** | 1,946 | 0.51 ms | 1.25 ms | 0% |
+| http-zig | 1,946 | 0.87 ms | 1.81 ms | 0% |
 
 ---
 
@@ -197,7 +195,6 @@ Realistic traffic pattern with varied request types.
 **Areas for improvement:**
 - Throughput on keep-alive connections (75% of nginx)
 - p99 tail latency under sustained load
-- Missing POST /echo endpoint for full mixed workload support
 
 **vs other Zig (http-zig):**
 - 6-14x faster across all scenarios

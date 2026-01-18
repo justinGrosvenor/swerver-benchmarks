@@ -2,7 +2,7 @@
 // Goal: Simulate realistic traffic patterns
 
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
 import { Rate } from 'k6/metrics';
 import { config, baseUrl, defaultParams, randomJsonBody } from '/lib/helpers.js';
 import { textSummary } from '/lib/summary.js';
@@ -60,9 +60,6 @@ export default function() {
     });
 
     errorRate.add(!success);
-
-    // Small think time for realistic pattern
-    sleep(Math.random() * 0.1); // 0-100ms
 }
 
 export function handleSummary(data) {
