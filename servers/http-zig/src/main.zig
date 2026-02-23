@@ -64,9 +64,7 @@ fn connectionRoutine(task: *ConnectionTask) void {
     defer task.allocator.destroy(task);
     defer task.stream.close();
 
-    handleConnection(task) catch |err| {
-        // Connection errors are expected (client disconnect, timeout, etc.)
-        _ = err;
+    handleConnection(task) catch {
         return;
     };
 }
