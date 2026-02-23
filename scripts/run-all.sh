@@ -48,6 +48,16 @@ echo "Duration:  $DURATION"
 echo "========================================"
 echo ""
 
+# Sync local swerver sources if available
+LOCAL_SWERVER_DIR="$(cd .. && pwd)/swerver"
+LOCAL_SWERVER_CONTEXT="./servers/swerver/swerver-src"
+if [[ -d "$LOCAL_SWERVER_DIR" ]]; then
+    echo "Syncing local swerver sources into Docker context..."
+    rm -rf "$LOCAL_SWERVER_CONTEXT"
+    mkdir -p "$LOCAL_SWERVER_CONTEXT"
+    rsync -a --delete --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
+fi
+
 # Track results
 RESULTS_DIR="results/run_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"
@@ -67,9 +77,11 @@ for server in $SERVERS; do
     echo "Starting $server..."
     docker-compose up -d "$server"
 
-    # Wait for ready
+    # Wait for ready (try curl first, fall back to wget)
     for i in {1..30}; do
-        if docker-compose exec -T "$server" wget -q --spider "http://localhost:8080/health" 2>/dev/null; then
+        if docker-compose exec -T "$server" curl -sSf "http://localhost:8080/health" 2>/dev/null; then
+            break
+        elif docker-compose exec -T "$server" wget -q --spider "http://localhost:8080/health" 2>/dev/null; then
             break
         fi
         sleep 1
@@ -89,8 +101,12 @@ for server in $SERVERS; do
             *) TARGET_PORT=8080 ;;
         esac
 
-        # Run benchmark
+        # Remove stale result file to prevent attributing previous server's data
+        rm -f "results/${scenario}.json"
+
+        # Run benchmark (explicit volume mount for results)
         docker-compose run --rm \
+            -v "$(pwd)/results:/results" \
             -e K6_VUS="$VUS" \
             -e K6_DURATION="$DURATION" \
             -e TARGET_HOST="$server" \
