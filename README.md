@@ -126,6 +126,21 @@ See [docs/design/architecture.md](docs/design/architecture.md) for details.
 
 ## Results
 
+### Native wrk Benchmarks
+
+Tested on macOS (Apple Silicon), single-process, ReleaseFast build (1.8MB binary), wrk 2 threads. February 2026.
+
+| Scenario | Connections | Requests/sec | Avg Latency | Transfer/sec |
+|----------|------------|-------------|-------------|--------------|
+| GET /health | 100 | **274,617** | 328us | 19.6 MB/s |
+| GET /echo | 50 | **264,698** | 163us | 31.1 MB/s |
+| GET /plaintext | 100 | **285,606** | 321us | 31.3 MB/s |
+| GET /json | 100 | **267,543** | 335us | 34.5 MB/s |
+| GET /health (high concurrency) | 500 | **268,283** | 1.80ms | 19.2 MB/s |
+| GET /blob (1MB) | 50 | **6,811** | 7.35ms | 6.65 GB/s |
+
+### Docker k6 Benchmarks
+
 Tested on Docker Desktop (macOS, Apple Silicon) with 2 CPU cores and 512MB memory limit per container. January 2026.
 
 ### Throughput (GET /health, 100 VUs, 30s)
@@ -187,14 +202,16 @@ Realistic traffic pattern with varied request types.
 
 ### Key Findings
 
-**Swerver excels at:**
+**Native performance (wrk, single process):**
+- **285K req/s** on plaintext — saturates single-core kqueue event loop
+- **Sub-millisecond latency** across all endpoints at 100 connections
+- **6.65 GB/s** throughput on large responses (1MB blob)
+- Stable under high concurrency (500 connections, <2ms avg latency)
+
+**Docker comparison (k6, containerized):**
 - **Connection handling**: 4x faster than nginx at new connections (92k vs 23k req/s)
 - **Concurrent scaling**: Best throughput at 1000 VUs (172k req/s, 60% faster than nginx)
 - **Low latency**: Consistently lowest p95 latency across scenarios
-
-**Areas for improvement:**
-- Throughput on keep-alive connections (75% of nginx)
-- p99 tail latency under sustained load
 
 **vs other Zig (http-zig):**
 - 6-14x faster across all scenarios
