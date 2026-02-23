@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from collections import defaultdict
 
+
 def load_results(files):
     """Load all result files into a structured dict."""
     results = defaultdict(lambda: defaultdict(dict))
@@ -17,13 +18,25 @@ def load_results(files):
         try:
             with open(f) as fp:
                 data = json.load(fp)
-                server = data.get('server', Path(f).stem.split('_')[0])
-                scenario = data.get('scenario', Path(f).stem.split('_')[1] if '_' in Path(f).stem else 'unknown')
+                # Use filename as fallback, but prefer JSON fields
+                stem = Path(f).stem
+                parts = stem.split('_')
+                server = data.get('server', parts[0] if parts else 'unknown')
+                scenario = data.get('scenario', parts[1] if len(parts) > 1 else 'unknown')
+
+                # Validate server matches filename to catch stale results
+                expected_server = parts[0] if parts else None
+                if expected_server and server != expected_server:
+                    print(f"Warning: {f} claims server='{server}' but filename says '{expected_server}' (stale result?)",
+                          file=sys.stderr)
+                    continue
+
                 results[scenario][server] = data.get('metrics', {})
         except (json.JSONDecodeError, IOError) as e:
             print(f"Warning: Could not load {f}: {e}", file=sys.stderr)
 
     return results
+
 
 def format_number(n, decimals=2):
     """Format number with commas and decimal places."""
@@ -32,6 +45,7 @@ def format_number(n, decimals=2):
     if isinstance(n, float):
         return f"{n:,.{decimals}f}"
     return f"{n:,}"
+
 
 def generate_report(results):
     """Generate markdown comparison report."""
@@ -45,9 +59,11 @@ def generate_report(results):
         lines.append(f"## {scenario.title()}")
         lines.append("")
 
-        # Build comparison table
+        # Build comparison table — include metrics that exist in ANY server
         metrics_to_compare = [
             ('requests_per_second', 'Requests/sec', 0),
+            ('requests_per_second_avg', 'Requests/sec (avg)', 0),
+            ('connections_per_second', 'Connections/sec', 0),
             ('latency_avg_ms', 'Latency Avg (ms)', 2),
             ('latency_p50_ms', 'Latency p50 (ms)', 2),
             ('latency_p95_ms', 'Latency p95 (ms)', 2),
@@ -57,12 +73,18 @@ def generate_report(results):
 
         server_names = sorted(servers.keys())
 
+        # Only include metric rows where at least one server has data
+        active_metrics = []
+        for metric_key, metric_name, decimals in metrics_to_compare:
+            if any(servers[s].get(metric_key) is not None for s in server_names):
+                active_metrics.append((metric_key, metric_name, decimals))
+
         # Header
         lines.append("| Metric | " + " | ".join(server_names) + " |")
         lines.append("|--------|" + "|".join(["--------"] * len(server_names)) + "|")
 
         # Rows
-        for metric_key, metric_name, decimals in metrics_to_compare:
+        for metric_key, metric_name, decimals in active_metrics:
             row = [metric_name]
             for server in server_names:
                 value = servers[server].get(metric_key)
@@ -71,20 +93,30 @@ def generate_report(results):
 
         lines.append("")
 
-        # Winner analysis
-        if 'requests_per_second' in servers.get(server_names[0], {}):
-            rps_values = [(s, servers[s].get('requests_per_second', 0)) for s in server_names]
-            winner = max(rps_values, key=lambda x: x[1] or 0)
-            lines.append(f"**Throughput winner:** {winner[0]} ({format_number(winner[1], 0)} req/s)")
+        # Winner analysis — check ALL servers, not just the first
+        rps_key = None
+        for key in ('requests_per_second', 'requests_per_second_avg', 'connections_per_second'):
+            if any(servers[s].get(key) is not None for s in server_names):
+                rps_key = key
+                break
 
-        if 'latency_p99_ms' in servers.get(server_names[0], {}):
-            lat_values = [(s, servers[s].get('latency_p99_ms', float('inf'))) for s in server_names]
-            winner = min(lat_values, key=lambda x: x[1] if x[1] else float('inf'))
+        if rps_key:
+            rps_values = [(s, servers[s].get(rps_key)) for s in server_names]
+            rps_values = [(s, v) for s, v in rps_values if v is not None and v > 0]
+            if rps_values:
+                winner = max(rps_values, key=lambda x: x[1])
+                lines.append(f"**Throughput winner:** {winner[0]} ({format_number(winner[1], 0)} req/s)")
+
+        lat_values = [(s, servers[s].get('latency_p99_ms')) for s in server_names]
+        lat_values = [(s, v) for s, v in lat_values if v is not None and v > 0]
+        if lat_values:
+            winner = min(lat_values, key=lambda x: x[1])
             lines.append(f"**Latency winner (p99):** {winner[0]} ({format_number(winner[1])} ms)")
 
         lines.append("")
 
     return "\n".join(lines)
+
 
 def main():
     if len(sys.argv) < 2:
@@ -100,6 +132,7 @@ def main():
 
     report = generate_report(results)
     print(report)
+
 
 if __name__ == '__main__':
     main()

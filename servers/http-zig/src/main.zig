@@ -65,7 +65,8 @@ fn connectionRoutine(task: *ConnectionTask) void {
     defer task.stream.close();
 
     handleConnection(task) catch |err| {
-        std.debug.print("http-zig: connection error: {}\n", .{err});
+        // Connection errors are expected (client disconnect, timeout, etc.)
+        _ = err;
         return;
     };
 }
@@ -74,88 +75,107 @@ fn handleConnection(task: *ConnectionTask) !void {
     var reader = task.stream.reader();
     var writer = task.stream.writer();
 
-    var header_buf: [HeaderBufSize]u8 = undefined;
-    const header_result = try readHeaders(&reader, &header_buf);
-    const header_bytes = header_buf[0..header_result.end];
-    const leftover = header_result.total - header_result.end;
+    // Keep-alive loop: handle multiple requests per connection
+    while (true) {
+        var header_buf: [HeaderBufSize]u8 = undefined;
+        const header_result = readHeaders(&reader, &header_buf) catch |err| {
+            switch (err) {
+                Errors.unexpectedEOF => return, // client closed connection
+                else => return err,
+            }
+        };
+        const header_bytes = header_buf[0..header_result.end];
+        const leftover = header_result.total - header_result.end;
 
-    const first_line_end = try indexOf(header_bytes, '\n');
-    var first_line = header_bytes[0..first_line_end];
-    if (first_line.len > 0 and first_line[first_line.len - 1] == '\r') {
-        first_line = first_line[0..first_line.len - 1];
-    }
-
-    const method_end = try indexOf(first_line, ' ');
-    const path_start = method_end + 1;
-    const path_part = first_line[path_start..];
-    const path_end = try indexOf(path_part, ' ');
-    const method = first_line[0..method_end];
-    const path = path_part[0..path_end];
-
-    var lower_buf: [HeaderBufSize]u8 = undefined;
-    const header_len = header_bytes.len;
-    var idx: usize = 0;
-    while (idx < header_len) : (idx += 1) {
-        const c = header_bytes[idx];
-        if (c >= 'A' and c <= 'Z') {
-            lower_buf[idx] = c + 32;
-        } else {
-            lower_buf[idx] = c;
+        const first_line_end = try indexOf(header_bytes, '\n');
+        var first_line = header_bytes[0..first_line_end];
+        if (first_line.len > 0 and first_line[first_line.len - 1] == '\r') {
+            first_line = first_line[0 .. first_line.len - 1];
         }
-    }
 
-    const content_length = findContentLength(lower_buf[0..header_len]);
+        const method_end = try indexOf(first_line, ' ');
+        const path_start = method_end + 1;
+        const path_part = first_line[path_start..];
+        const path_end = try indexOf(path_part, ' ');
+        const method = first_line[0..method_end];
+        const path = path_part[0..path_end];
 
-    var body: []u8 = undefined;
-    var owned_body: ?[]u8 = null;
-    if (content_length > 0) {
-        const req_body = try task.allocator.alloc(u8, content_length);
-        owned_body = req_body;
-        body = req_body;
-
-        if (leftover > 0) {
-            var left_idx: usize = 0;
-            const copied = header_buf[header_result.end..header_result.end + leftover];
-            while (left_idx < copied.len) : (left_idx += 1) {
-                body[left_idx] = copied[left_idx];
+        // Check for Connection: close header
+        var lower_buf: [HeaderBufSize]u8 = undefined;
+        const header_len = header_bytes.len;
+        var idx: usize = 0;
+        while (idx < header_len) : (idx += 1) {
+            const c = header_bytes[idx];
+            if (c >= 'A' and c <= 'Z') {
+                lower_buf[idx] = c + 32;
+            } else {
+                lower_buf[idx] = c;
             }
         }
 
-        _ = try reader.readAll(body[leftover..]);
-    } else {
-        const scratch: [0]u8 = undefined;
-        body = scratch[0..0];
-    }
-    defer if (owned_body) |buf| task.allocator.free(buf);
+        const keep_alive = !hasConnectionClose(lower_buf[0..header_len]);
+        const content_length = findContentLength(lower_buf[0..header_len]);
+        const conn_header = if (keep_alive) "Connection: keep-alive\r\n" else "Connection: close\r\n";
 
-    if (std.mem.eql(u8, method, "GET")) {
-        if (std.mem.eql(u8, path, "/health")) {
-            try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-            return;
-        } else if (std.mem.eql(u8, path, "/echo")) {
-            const payload = "{\"status\":\"ok\"}";
-            try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n");
-            try writer.print("Content-Length: {d}\r\n", .{payload.len});
-            try writer.writeAll("Connection: close\r\n\r\n");
-            try writer.writeAll(payload);
-            return;
-        } else if (std.mem.eql(u8, path, "/blob")) {
-            try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n");
-            try writer.print("Content-Length: {d}\r\n", .{task.blob.len});
-            try writer.writeAll("Connection: close\r\n\r\n");
-            try writer.writeAll(task.blob);
-            return;
+        var body: []u8 = undefined;
+        var owned_body: ?[]u8 = null;
+        if (content_length > 0) {
+            const req_body = try task.allocator.alloc(u8, content_length);
+            owned_body = req_body;
+            body = req_body;
+
+            if (leftover > 0) {
+                var left_idx: usize = 0;
+                const copied = header_buf[header_result.end .. header_result.end + leftover];
+                while (left_idx < copied.len) : (left_idx += 1) {
+                    body[left_idx] = copied[left_idx];
+                }
+            }
+
+            _ = try reader.readAll(body[leftover..]);
+        } else {
+            const scratch: [0]u8 = undefined;
+            body = scratch[0..0];
         }
-    } else if (std.mem.eql(u8, method, "POST") and std.mem.eql(u8, path, "/echo")) {
-        try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n");
-        try writer.print("Content-Length: {d}\r\n", .{body.len});
-        try writer.writeAll("Connection: close\r\n\r\n");
-        try writer.writeAll(body);
-        return;
-    }
+        defer if (owned_body) |buf| task.allocator.free(buf);
 
-    try writer.writeAll("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-    return;
+        if (std.mem.eql(u8, method, "GET")) {
+            if (std.mem.eql(u8, path, "/health")) {
+                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n");
+                try writer.writeAll(conn_header);
+                try writer.writeAll("\r\n");
+            } else if (std.mem.eql(u8, path, "/echo")) {
+                const payload = "{\"status\":\"ok\"}";
+                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n");
+                try writer.print("Content-Length: {d}\r\n", .{payload.len});
+                try writer.writeAll(conn_header);
+                try writer.writeAll("\r\n");
+                try writer.writeAll(payload);
+            } else if (std.mem.eql(u8, path, "/blob")) {
+                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n");
+                try writer.print("Content-Length: {d}\r\n", .{task.blob.len});
+                try writer.writeAll(conn_header);
+                try writer.writeAll("\r\n");
+                try writer.writeAll(task.blob);
+            } else {
+                try writer.writeAll("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n");
+                try writer.writeAll(conn_header);
+                try writer.writeAll("\r\n");
+            }
+        } else if (std.mem.eql(u8, method, "POST") and std.mem.eql(u8, path, "/echo")) {
+            try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n");
+            try writer.print("Content-Length: {d}\r\n", .{body.len});
+            try writer.writeAll(conn_header);
+            try writer.writeAll("\r\n");
+            try writer.writeAll(body);
+        } else {
+            try writer.writeAll("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n");
+            try writer.writeAll(conn_header);
+            try writer.writeAll("\r\n");
+        }
+
+        if (!keep_alive) return;
+    }
 }
 
 const HeaderResult = struct {
@@ -184,7 +204,7 @@ fn findContentLength(headers: []const u8) usize {
     const needle = "content-length:";
     var i: usize = 0;
     while (i + needle.len <= headers.len) {
-        if (std.mem.eql(u8, headers[i..i + needle.len], needle)) {
+        if (std.mem.eql(u8, headers[i .. i + needle.len], needle)) {
             i += needle.len;
             while (i < headers.len and (headers[i] == ' ' or headers[i] == '\t')) i += 1;
             const start = i;
@@ -197,10 +217,28 @@ fn findContentLength(headers: []const u8) usize {
     return 0;
 }
 
+fn hasConnectionClose(headers: []const u8) bool {
+    const needle = "connection:";
+    var i: usize = 0;
+    while (i + needle.len <= headers.len) {
+        if (std.mem.eql(u8, headers[i .. i + needle.len], needle)) {
+            i += needle.len;
+            while (i < headers.len and (headers[i] == ' ' or headers[i] == '\t')) i += 1;
+            const start = i;
+            while (i < headers.len and headers[i] != '\r' and headers[i] != '\n') i += 1;
+            const value = headers[start..i];
+            if (std.mem.indexOf(u8, value, "close") != null) return true;
+            return false;
+        }
+        i += 1;
+    }
+    return false;
+}
+
 fn indexOf(buf: []const u8, byte: u8) !usize {
-    var idx: usize = 0;
-    while (idx < buf.len) : (idx += 1) {
-        if (buf[idx] == byte) return idx;
+    var i: usize = 0;
+    while (i < buf.len) : (i += 1) {
+        if (buf[i] == byte) return i;
     }
     return Errors.notFound;
 }
@@ -209,7 +247,7 @@ fn indexOfSequence(buf: []const u8, seq: []const u8) ?usize {
     if (seq.len == 0) return 0;
     var i: usize = 0;
     while (i + seq.len <= buf.len) {
-        if (std.mem.eql(u8, buf[i..i + seq.len], seq)) return i;
+        if (std.mem.eql(u8, buf[i .. i + seq.len], seq)) return i;
         i += 1;
     }
     return null;

@@ -11,7 +11,7 @@ if [[ -d "$LOCAL_SWERVER_DIR" ]]; then
     echo "Syncing local swerver sources into Docker context..."
     rm -rf "$LOCAL_SWERVER_CONTEXT"
     mkdir -p "$LOCAL_SWERVER_CONTEXT"
-    rsync -a --delete --exclude='.git' "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
+    rsync -a --delete --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
 else
     echo "Local swerver source not found at $LOCAL_SWERVER_DIR; build will clone from origin."
 fi
@@ -107,6 +107,7 @@ echo ""
 
 set +e
 docker-compose run --rm \
+    -v "$(pwd)/results:/results" \
     -e K6_VUS="$VUS" \
     -e K6_DURATION="$DURATION" \
     -e TARGET_HOST="$SERVER" \

@@ -43,7 +43,7 @@ export function handleSummary(data) {
         metrics: {
             connections_total: data.metrics.http_reqs.values.count,
             connections_per_second: data.metrics.http_reqs.values.rate,
-            errors_total: data.metrics.http_req_failed.values.passes,
+            errors_total: data.metrics.http_req_failed.values.passes, // passes = requests where failed=true
             error_rate: data.metrics.http_req_failed.values.rate,
             latency_avg_ms: data.metrics.http_req_duration.values.avg,
             latency_p95_ms: data.metrics.http_req_duration.values['p(95)'],

@@ -59,5 +59,5 @@ EXPOSE 8080
 # GET /health - minimal health check (empty 200)
 # GET /echo   - returns {"status":"ok"}
 # POST /echo  - echoes request body
-# GET /blob   - returns 1MB response
+# GET /blob   - returns 8KB response
 CMD ["swerver"]
