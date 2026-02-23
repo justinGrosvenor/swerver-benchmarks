@@ -62,6 +62,11 @@ fi
 RESULTS_DIR="results/run_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"
 
+# Clean any leftover result files from previous runs
+for sc in $SCENARIOS; do
+    rm -f "results/${sc}.json"
+done
+
 # Build all servers first
 echo "Building all servers..."
 docker-compose build $SERVERS
