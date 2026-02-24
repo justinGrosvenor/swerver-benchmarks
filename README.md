@@ -152,7 +152,7 @@ Maximum requests per second on minimal endpoint.
 | **swerver** | 174,733 | 0.94 ms | 1.81 ms | 0% |
 | **actix** | 134,691 | 1.35 ms | 2.48 ms | 0% |
 | **nginx** | 118,265 | 1.57 ms | 2.75 ms | 0% |
-| http-zig | 2,294 | 48.82 ms | 51.57 ms | 0% |
+| http-zig | 78,354 | 1.26 ms | 2.47 ms | 0% |
 
 ### Latency (GET /echo with JSON, 100 VUs, 30s)
 
@@ -163,7 +163,7 @@ Response time percentiles with JSON payload.
 | **nginx** | 7,977 | 3.09 ms | 4.75 ms | 0% |
 | **swerver** | 7,700 | 3.24 ms | 4.97 ms | 0% |
 | actix | 6,949 | 3.59 ms | 5.50 ms | 0% |
-| http-zig | 1,846 | 46.71 ms | 50.06 ms | 0% |
+| http-zig | 7,198 | 2.52 ms | 6.88 ms | 0% |
 
 ### Connections (No keep-alive, 100 VUs, 30s)
 
@@ -174,7 +174,7 @@ Connection setup overhead - new TCP connection per request.
 | **swerver** | 89,702 | 1.66 ms | 2.95 ms | 0% |
 | **actix** | 77,411 | 2.18 ms | 3.57 ms | 0% |
 | nginx | 24,154 | 11.38 ms | 28.91 ms | 0% |
-| http-zig | 1,691 | 10.30 ms | 32.66 ms | 17% |
+| http-zig | 3,978 | 2.52 ms | 6.88 ms | 0% |
 
 ### Concurrent (Ramp 10→1000 VUs, 30s)
 
@@ -185,7 +185,7 @@ Scaling with increasing connections.
 | **swerver** | 176,281 | 1.07 ms | 2.06 ms | 0% |
 | **actix** | 151,055 | 1.36 ms | 2.49 ms | 0% |
 | **nginx** | 140,250 | 1.43 ms | 2.44 ms | 0% |
-| http-zig | 2,353 | 45.90 ms | 48.92 ms | 0% |
+| http-zig | 78,909 | 1.32 ms | 2.66 ms | 0% |
 
 ### Mixed Workload (30% health, 40% GET, 20% POST, 10% blob)
 
@@ -196,7 +196,7 @@ Realistic traffic pattern with varied request types.
 | **nginx** | 33,886 | 4.37 ms | 12.26 ms | 0% |
 | **actix** | 33,714 | 3.73 ms | 10.45 ms | 0% |
 | **swerver** | 29,834 | 6.46 ms | 19.82 ms | 0% |
-| http-zig | 19,636 | — | — | 100% |
+| http-zig | 5,666 | 41.23 ms | 42.08 ms | 0% |
 
 ---
 
@@ -216,8 +216,8 @@ Realistic traffic pattern with varied request types.
 - **Mixed workload**: Competitive at 30K req/s; actix/nginx edge ahead on POST-heavy traffic
 
 **vs other Zig (http-zig):**
-- 50-76x faster on throughput/concurrent (thread-per-connection collapses under load)
-- Demonstrates benefit of custom kqueue/epoll event loop vs stdlib
+- 2.2x faster throughput, 22x faster connection setup
+- Both use fixed thread pools; swerver's event loop avoids per-connection blocking
 
 Results are saved to `results/` as JSON:
 
