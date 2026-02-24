@@ -3,6 +3,7 @@ const posix = std.posix;
 
 const BlobSize = 8 * 1024;
 const HeaderBufSize = 16 * 1024;
+const WorkerCount = 64;
 
 const Errors = error{
     unexpectedEOF,
@@ -23,62 +24,67 @@ fn listen(address: std.net.Address) !std.net.Server {
     };
     errdefer listener.stream.close();
 
+    posix.setsockopt(sockfd, posix.SOL.SOCKET, posix.SO.REUSEADDR, &std.mem.toBytes(@as(c_int, 1))) catch {};
+
     var socklen = address.getOsSockLen();
     try posix.bind(sockfd, &address.any, socklen);
-    try posix.listen(sockfd, 128);
+    try posix.listen(sockfd, 1024);
     try posix.getsockname(sockfd, &listener.listen_address.any, &socklen);
     return listener;
 }
 
+const WorkerContext = struct {
+    listener: *std.net.Server,
+    blob: []const u8,
+};
+
 pub fn main() !void {
-    var page_allocator = std.heap.page_allocator;
-    const allocator = &page_allocator;
+    const allocator = std.heap.page_allocator;
     const address = try std.net.Address.parseIp4("0.0.0.0", 8080);
     var listener = try listen(address);
     defer listener.deinit();
 
-    var blob = try allocator.alloc(u8, BlobSize);
-    for (blob) |*byte| {
-        byte.* = 0;
-    }
+    const blob = try allocator.alloc(u8, BlobSize);
+    @memset(blob, 0);
 
-    while (true) {
-        const connection = try listener.accept();
-        const task = try allocator.create(ConnectionTask);
-        task.allocator = allocator;
-        task.stream = connection.stream;
-        task.blob = blob[0..];
-
-        var thread = try std.Thread.spawn(.{}, connectionRoutine, .{task});
-        thread.detach();
-    }
-}
-
-const ConnectionTask = struct {
-    allocator: *std.mem.Allocator,
-    stream: std.net.Stream,
-    blob: []const u8,
-};
-
-fn connectionRoutine(task: *ConnectionTask) void {
-    defer task.allocator.destroy(task);
-    defer task.stream.close();
-
-    handleConnection(task) catch {
-        return;
+    var ctx = WorkerContext{
+        .listener = &listener,
+        .blob = blob,
     };
+
+    // Spawn N-1 worker threads, use main thread as Nth worker
+    var threads: [WorkerCount - 1]std.Thread = undefined;
+    var spawned: usize = 0;
+    for (&threads) |*t| {
+        t.* = std.Thread.spawn(.{ .stack_size = 256 * 1024 }, workerLoop, .{&ctx}) catch break;
+        spawned += 1;
+    }
+
+    // Main thread also accepts
+    workerLoop(&ctx);
+
+    // Unreachable in practice, but clean up if workerLoop ever returns
+    for (threads[0..spawned]) |t| t.join();
 }
 
-fn handleConnection(task: *ConnectionTask) !void {
-    var reader = task.stream.reader();
-    var writer = task.stream.writer();
+fn workerLoop(ctx: *WorkerContext) void {
+    while (true) {
+        const connection = ctx.listener.accept() catch continue;
+        handleConnection(connection.stream, ctx.blob) catch {};
+        connection.stream.close();
+    }
+}
+
+fn handleConnection(stream: std.net.Stream, blob: []const u8) !void {
+    var reader = stream.reader();
+    var writer = stream.writer();
 
     // Keep-alive loop: handle multiple requests per connection
     while (true) {
         var header_buf: [HeaderBufSize]u8 = undefined;
         const header_result = readHeaders(&reader, &header_buf) catch |err| {
             switch (err) {
-                Errors.unexpectedEOF => return, // client closed connection
+                Errors.unexpectedEOF => return,
                 else => return err,
             }
         };
@@ -115,46 +121,35 @@ fn handleConnection(task: *ConnectionTask) !void {
         const content_length = findContentLength(lower_buf[0..header_len]);
         const conn_header = if (keep_alive) "Connection: keep-alive\r\n" else "Connection: close\r\n";
 
-        var body: []u8 = undefined;
-        var owned_body: ?[]u8 = null;
+        // Read body onto stack (max 64KB to avoid stack overflow)
+        var body_stack: [65536]u8 = undefined;
+        var body: []u8 = body_stack[0..0];
         if (content_length > 0) {
-            const req_body = try task.allocator.alloc(u8, content_length);
-            owned_body = req_body;
-            body = req_body;
+            if (content_length > body_stack.len) return; // reject oversized
+            body = body_stack[0..content_length];
 
             if (leftover > 0) {
-                var left_idx: usize = 0;
-                const copied = header_buf[header_result.end .. header_result.end + leftover];
-                while (left_idx < copied.len) : (left_idx += 1) {
-                    body[left_idx] = copied[left_idx];
-                }
+                const to_copy = @min(leftover, content_length);
+                @memcpy(body[0..to_copy], header_buf[header_result.end .. header_result.end + to_copy]);
             }
 
-            _ = try reader.readAll(body[leftover..]);
-        } else {
-            const scratch: [0]u8 = undefined;
-            body = scratch[0..0];
+            const remaining = content_length -| leftover;
+            if (remaining > 0) {
+                _ = try reader.readAll(body[leftover..]);
+            }
         }
-        defer if (owned_body) |buf| task.allocator.free(buf);
 
         if (std.mem.eql(u8, method, "GET")) {
             if (std.mem.eql(u8, path, "/health")) {
-                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n");
-                try writer.writeAll(conn_header);
-                try writer.writeAll("\r\n");
+                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n" ++ "Connection: keep-alive\r\n\r\n");
             } else if (std.mem.eql(u8, path, "/echo")) {
                 const payload = "{\"status\":\"ok\"}";
-                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n");
-                try writer.print("Content-Length: {d}\r\n", .{payload.len});
-                try writer.writeAll(conn_header);
-                try writer.writeAll("\r\n");
-                try writer.writeAll(payload);
+                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 15\r\n" ++ "Connection: keep-alive\r\n\r\n" ++ payload);
             } else if (std.mem.eql(u8, path, "/blob")) {
-                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n");
-                try writer.print("Content-Length: {d}\r\n", .{task.blob.len});
+                try writer.writeAll("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 8192\r\n");
                 try writer.writeAll(conn_header);
                 try writer.writeAll("\r\n");
-                try writer.writeAll(task.blob);
+                try writer.writeAll(blob);
             } else {
                 try writer.writeAll("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n");
                 try writer.writeAll(conn_header);
