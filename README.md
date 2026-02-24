@@ -141,7 +141,7 @@ Tested on macOS (Apple Silicon), single-process, ReleaseFast build (1.8MB binary
 
 ### Docker k6 Benchmarks
 
-Tested on Docker Desktop (macOS, Apple Silicon) with 2 CPU cores and 512MB memory limit per container. January 2026.
+Tested on Docker Desktop (macOS, Apple Silicon) with 2 CPU cores and 512MB memory limit per container. k6 with 100 VUs, 30s duration. February 2026.
 
 ### Throughput (GET /health, 100 VUs, 30s)
 
@@ -149,10 +149,10 @@ Maximum requests per second on minimal endpoint.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **nginx** | 102,940 | 1.87 ms | 4.19 ms | 0% |
-| **actix** | 93,779 | 1.85 ms | 10.28 ms | 0% |
-| **swerver** | 76,811 | 1.82 ms | 17.63 ms | 0% |
-| http-zig | 12,688 | 10.07 ms | 12.49 ms | 0% |
+| **swerver** | 174,733 | 0.94 ms | 1.81 ms | 0% |
+| **actix** | 134,691 | 1.35 ms | 2.48 ms | 0% |
+| **nginx** | 118,265 | 1.57 ms | 2.75 ms | 0% |
+| http-zig | 2,294 | 48.82 ms | 51.57 ms | 0% |
 
 ### Latency (GET /echo with JSON, 100 VUs, 30s)
 
@@ -160,10 +160,10 @@ Response time percentiles with JSON payload.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| http-zig | 8,443 | 2.97 ms | 5.00 ms | 0% |
-| **nginx** | 7,912 | 3.31 ms | 5.45 ms | 0% |
-| **swerver** | 7,769 | 3.11 ms | 5.01 ms | 0% |
-| actix | 7,494 | 3.16 ms | 5.83 ms | 0% |
+| **nginx** | 7,977 | 3.09 ms | 4.75 ms | 0% |
+| **swerver** | 7,700 | 3.24 ms | 4.97 ms | 0% |
+| actix | 6,949 | 3.59 ms | 5.50 ms | 0% |
+| http-zig | 1,846 | 46.71 ms | 50.06 ms | 0% |
 
 ### Connections (No keep-alive, 100 VUs, 30s)
 
@@ -171,10 +171,10 @@ Connection setup overhead - new TCP connection per request.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **swerver** | 92,080 | 1.61 ms | 2.89 ms | 0% |
-| **actix** | 50,801 | 2.93 ms | 11.40 ms | 0% |
-| nginx | 22,723 | 9.30 ms | 30.57 ms | 0% |
-| http-zig | 12,501 | 10.53 ms | 12.97 ms | 0% |
+| **swerver** | 89,702 | 1.66 ms | 2.95 ms | 0% |
+| **actix** | 77,411 | 2.18 ms | 3.57 ms | 0% |
+| nginx | 24,154 | 11.38 ms | 28.91 ms | 0% |
+| http-zig | 1,691 | 10.30 ms | 32.66 ms | 17% |
 
 ### Concurrent (Ramp 10→1000 VUs, 30s)
 
@@ -182,10 +182,10 @@ Scaling with increasing connections.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **swerver** | 172,198 | 1.11 ms | 2.13 ms | 0% |
-| **nginx** | 107,902 | 2.01 ms | 3.72 ms | 0% |
-| actix | 91,417 | 2.13 ms | 11.33 ms | 0% |
-| http-zig | 12,986 | 9.97 ms | 12.36 ms | 0% |
+| **swerver** | 176,281 | 1.07 ms | 2.06 ms | 0% |
+| **actix** | 151,055 | 1.36 ms | 2.49 ms | 0% |
+| **nginx** | 140,250 | 1.43 ms | 2.44 ms | 0% |
+| http-zig | 2,353 | 45.90 ms | 48.92 ms | 0% |
 
 ### Mixed Workload (30% health, 40% GET, 20% POST, 10% blob)
 
@@ -193,10 +193,10 @@ Realistic traffic pattern with varied request types.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **actix** | 1,951 | 0.54 ms | 1.60 ms | 0% |
-| **nginx** | 1,948 | 0.56 ms | 1.40 ms | 0% |
-| **swerver** | 1,946 | 0.51 ms | 1.25 ms | 0% |
-| http-zig | 1,946 | 0.87 ms | 1.81 ms | 0% |
+| **nginx** | 33,886 | 4.37 ms | 12.26 ms | 0% |
+| **actix** | 33,714 | 3.73 ms | 10.45 ms | 0% |
+| **swerver** | 29,834 | 6.46 ms | 19.82 ms | 0% |
+| http-zig | 19,636 | — | — | 100% |
 
 ---
 
@@ -209,13 +209,15 @@ Realistic traffic pattern with varied request types.
 - Stable under high concurrency (500 connections, <2ms avg latency)
 
 **Docker comparison (k6, containerized):**
-- **Connection handling**: 4x faster than nginx at new connections (92k vs 23k req/s)
-- **Concurrent scaling**: Best throughput at 1000 VUs (172k req/s, 60% faster than nginx)
-- **Low latency**: Consistently lowest p95 latency across scenarios
+- **Throughput**: 175K req/s — 30% faster than actix, 48% faster than nginx
+- **Connection handling**: 3.7x faster than nginx at new connections (90K vs 24K conn/s)
+- **Concurrent scaling**: Best throughput at 1000 VUs (176K req/s) with lowest p99 (2.06ms)
+- **Low latency**: Sub-2ms p99 on throughput and concurrent scenarios
+- **Mixed workload**: Competitive at 30K req/s; actix/nginx edge ahead on POST-heavy traffic
 
 **vs other Zig (http-zig):**
-- 6-14x faster across all scenarios
-- Demonstrates benefit of custom io_uring/kqueue vs stdlib
+- 50-76x faster on throughput/concurrent (thread-per-connection collapses under load)
+- Demonstrates benefit of custom kqueue/epoll event loop vs stdlib
 
 Results are saved to `results/` as JSON:
 
