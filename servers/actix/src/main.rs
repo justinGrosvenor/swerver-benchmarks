@@ -30,7 +30,7 @@ async fn echo_get() -> HttpResponse<BoxBody> {
 
 async fn echo_post(body: web::Bytes) -> HttpResponse<BoxBody> {
     HttpResponse::Ok()
-        .insert_header((header::CONTENT_TYPE, "application/octet-stream"))
+        .insert_header((header::CONTENT_TYPE, "application/json"))
         .body(body)
 }
 
