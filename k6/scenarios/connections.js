@@ -57,6 +57,6 @@ export function handleSummary(data) {
 
     return {
         'stdout': textSummary(data, { indent: ' ', enableColors: true }),
-        '/results/connections.json': JSON.stringify(summary, null, 2),
+        [`/results/${config.targetHost}_connections.json`]: JSON.stringify(summary, null, 2),
     };
 }

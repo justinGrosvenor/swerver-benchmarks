@@ -23,7 +23,7 @@ services:
       context: ./servers/swerver
       args:
         SWERVER_REF: "${SWERVER_REF:-main}"
-        SWERVER_REPO: "${SWERVER_REPO:-https://github.com/justin/swerver.git}"
+        SWERVER_REPO: "${SWERVER_REPO:-https://github.com/justinGrosvenor/swerver.git}"
         SWERVER_LOCAL_PATH: "1"
     ports:
       - "8080:8080"

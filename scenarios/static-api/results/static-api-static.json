@@ -1,0 +1,17 @@
+{
+  "scenario": "static-api-static",
+  "timestamp": "2026-02-26T15:34:29.085Z",
+  "config": {
+    "vus": 50,
+    "duration": "10s"
+  },
+  "metrics": {
+    "requests_total": 12079,
+    "requests_per_second": 1203.8211523785428,
+    "error_rate": 0,
+    "latency_avg_ms": 41.395451962248394,
+    "latency_p95_ms": 42.9467541,
+    "latency_p99_ms": 44.0190625,
+    "latency_max_ms": 46.44825
+  }
+}

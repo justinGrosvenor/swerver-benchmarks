@@ -1,0 +1,73 @@
+services:
+  swerver:
+    build:
+      context: ../../servers/swerver
+      args:
+        SWERVER_LOCAL_PATH: "true"
+    command: ["swerver", "--config", "/app/config.json"]
+    volumes:
+      - ./swerver-config.json:/app/config.json:ro
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      app-1:
+        condition: service_healthy
+      app-2:
+        condition: service_healthy
+      app-3:
+        condition: service_healthy
+
+  app-1:
+    build: ./backends/app
+    environment:
+      - INSTANCE_ID=app-1
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  app-2:
+    build: ./backends/app
+    environment:
+      - INSTANCE_ID=app-2
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  app-3:
+    build: ./backends/app
+    environment:
+      - INSTANCE_ID=app-3
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10

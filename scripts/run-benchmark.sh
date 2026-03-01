@@ -42,7 +42,7 @@ esac
 
 if [[ ! -f "k6/scenarios/${SCENARIO}.js" ]]; then
     echo "Unknown scenario: $SCENARIO"
-    echo "Available: throughput, latency, connections, concurrent, mixed"
+    echo "Available: throughput, latency, connections, concurrent, mixed, spike, payload, keepalive, rapid-fire, error-handling, soak"
     exit 1
 fi
 
@@ -59,7 +59,7 @@ echo "========================================"
 echo ""
 
 mkdir -p results
-rm -f "results/${SCENARIO}.json"
+rm -f "results/${SERVER}_${SCENARIO}.json"
 
 # Build
 echo "Building $SERVER..."
@@ -100,13 +100,18 @@ echo ""
 echo "Running $SCENARIO..."
 echo ""
 
+# Scenarios with custom executors/stages must not receive K6_VUS/K6_DURATION
+ENV_FLAGS="-e K6_VUS=$VUS -e K6_DURATION=$DURATION"
+case "$SCENARIO" in
+    payload|keepalive|spike|concurrent|soak) ENV_FLAGS="" ;;
+esac
+
 docker run --rm \
     --network "$NETWORK" \
     -v "$(pwd)/results:/results" \
     -v "$(pwd)/k6/scenarios:/scenarios:ro" \
     -v "$(pwd)/k6/lib:/lib:ro" \
-    -e K6_VUS="$VUS" \
-    -e K6_DURATION="$DURATION" \
+    $ENV_FLAGS \
     -e TARGET_HOST="$SERVER" \
     -e TARGET_PORT=8080 \
     "$K6_IMAGE" \
@@ -114,9 +119,9 @@ docker run --rm \
 
 # Verify and save result
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-if [[ -f "results/${SCENARIO}.json" ]]; then
+if [[ -f "results/${SERVER}_${SCENARIO}.json" ]]; then
     DEST="results/${SERVER}_${SCENARIO}_${TIMESTAMP}.json"
-    mv "results/${SCENARIO}.json" "$DEST"
+    mv "results/${SERVER}_${SCENARIO}.json" "$DEST"
     echo ""
     echo "Results saved to: $DEST"
 else

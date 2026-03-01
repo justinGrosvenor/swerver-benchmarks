@@ -66,6 +66,23 @@ export const connectionThresholds = {
     http_reqs: ['rate>500'],
 };
 
+// Spike/burst thresholds — very relaxed, errors expected during overload
+export const spikeThresholds = {
+    http_req_duration: ['p(95)<1000'],
+    http_req_failed: ['rate<0.10'],
+};
+
+// Soak/stability thresholds — tight, stability is the goal
+export const soakThresholds = {
+    http_req_duration: ['p(95)<100', 'p(99)<200'],
+    http_req_failed: ['rate<0.001'],
+};
+
+// Error-handling thresholds — no error rate check since errors are intentional
+export const errorThresholds = {
+    http_req_duration: ['p(95)<200', 'p(99)<500'],
+};
+
 // Format results for JSON output
 export function formatResults(data) {
     return {

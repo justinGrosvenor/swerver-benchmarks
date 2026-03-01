@@ -1,0 +1,17 @@
+{
+  "scenario": "api-gateway-throughput",
+  "timestamp": "2026-02-26T15:07:21.126Z",
+  "config": {
+    "vus": 50,
+    "duration": "10s"
+  },
+  "metrics": {
+    "requests_total": 99400,
+    "requests_per_second": 9933.5691404483,
+    "error_rate": 0,
+    "latency_avg_ms": 5.006387973189109,
+    "latency_p95_ms": 6.03454405,
+    "latency_p99_ms": 7.215931579999999,
+    "latency_max_ms": 89.466041
+  }
+}

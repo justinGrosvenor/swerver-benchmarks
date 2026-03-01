@@ -11,7 +11,8 @@ cd "$(dirname "$0")/.."
 
 # Defaults
 SERVERS="${SERVERS:-swerver nginx httpzig actix}"
-SCENARIOS="${SCENARIOS:-throughput latency connections concurrent mixed}"
+# Soak excluded by default (5 min) — opt-in: SCENARIOS="throughput latency connections concurrent mixed spike payload keepalive rapid-fire error-handling soak"
+SCENARIOS="${SCENARIOS:-throughput latency connections concurrent mixed spike payload keepalive rapid-fire error-handling}"
 VUS="${K6_VUS:-100}"
 DURATION="${K6_DURATION:-30s}"
 RETRIES=1
@@ -87,19 +88,26 @@ docker-compose down --remove-orphans 2>/dev/null || true
 run_benchmark() {
     local server="$1"
     local scenario="$2"
-    local result_file="results/${scenario}.json"
+    local result_file="results/${server}_${scenario}.json"
     local dest_file="$RESULTS_DIR/${server}_${scenario}.json"
 
     rm -f "$result_file"
 
+    # Scenarios with custom executors/stages must not receive K6_VUS/K6_DURATION
+    # (k6 auto-overrides options when these env vars are set)
+    local env_flags="-e K6_VUS=$VUS -e K6_DURATION=$DURATION"
+    case "$scenario" in
+        payload|keepalive|spike|concurrent|soak) env_flags="" ;;
+    esac
+
     # Run k6 directly via docker run — reliable volume mount
+    # k6 writes to /results/{server}_{scenario}.json (server-namespaced to prevent overwrites)
     docker run --rm \
         --network "$NETWORK" \
         -v "$(pwd)/results:/results" \
         -v "$(pwd)/k6/scenarios:/scenarios:ro" \
         -v "$(pwd)/k6/lib:/lib:ro" \
-        -e K6_VUS="$VUS" \
-        -e K6_DURATION="$DURATION" \
+        $env_flags \
         -e TARGET_HOST="$server" \
         -e TARGET_PORT=8080 \
         "$K6_IMAGE" \
@@ -108,15 +116,6 @@ run_benchmark() {
     # Verify result
     if [[ ! -f "$result_file" ]]; then
         echo "  FAIL: no result file written"
-        return 1
-    fi
-
-    # Verify server name in JSON matches expected
-    local json_server
-    json_server=$(python3 -c "import json; print(json.load(open('$result_file')).get('server',''))" 2>/dev/null)
-    if [[ "$json_server" != "$server" ]]; then
-        echo "  FAIL: result has server='$json_server', expected '$server' (stale data)"
-        rm -f "$result_file"
         return 1
     fi
 

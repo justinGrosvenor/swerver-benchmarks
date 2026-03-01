@@ -63,6 +63,6 @@ export function handleSummary(data) {
 
     return {
         'stdout': textSummary(data, { indent: ' ', enableColors: true }),
-        '/results/concurrent.json': JSON.stringify(summary, null, 2),
+        [`/results/${config.targetHost}_concurrent.json`]: JSON.stringify(summary, null, 2),
     };
 }

@@ -74,6 +74,6 @@ export function handleSummary(data) {
 
     return {
         'stdout': textSummary(data, { indent: ' ', enableColors: true }),
-        '/results/latency.json': JSON.stringify(summary, null, 2),
+        [`/results/${config.targetHost}_latency.json`]: JSON.stringify(summary, null, 2),
     };
 }

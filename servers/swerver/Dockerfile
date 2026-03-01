@@ -12,7 +12,7 @@ RUN apt-get update && \
 ENV PATH="/zig:${PATH}"
 
 # Clone swerver (or use local copy if provided)
-ARG SWERVER_REPO=https://github.com/justin/swerver.git
+ARG SWERVER_REPO=https://github.com/justinGrosvenor/swerver.git
 ARG SWERVER_REF=main
 ARG SWERVER_LOCAL_PATH=
 

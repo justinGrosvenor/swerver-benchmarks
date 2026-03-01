@@ -1,0 +1,40 @@
+{
+  "server": {
+    "address": "0.0.0.0",
+    "port": 8080,
+    "workers": 2,
+    "max_connections": 2048
+  },
+  "timeouts": {
+    "idle_ms": 30000,
+    "header_ms": 5000,
+    "body_ms": 15000,
+    "write_ms": 15000
+  },
+  "upstreams": [
+    {
+      "name": "app",
+      "servers": [
+        { "address": "app-1", "port": 3000, "weight": 3 },
+        { "address": "app-2", "port": 3000, "weight": 2 },
+        { "address": "app-3", "port": 3000, "weight": 1 }
+      ],
+      "load_balancer": "weighted_round_robin",
+      "health_check": {
+        "path": "/health",
+        "interval_ms": 3000,
+        "timeout_ms": 2000
+      },
+      "connection_pool": {
+        "max_connections": 64,
+        "max_idle": 16
+      }
+    }
+  ],
+  "routes": [
+    {
+      "path_prefix": "/",
+      "upstream": "app"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "scenario": "lb-throughput",
+  "timestamp": "2026-02-26T15:14:38.972Z",
+  "config": {
+    "vus": 50,
+    "duration": "10s"
+  },
+  "metrics": {
+    "requests_total": 101072,
+    "requests_per_second": 10102.262682770452,
+    "error_rate": 0,
+    "latency_avg_ms": 4.924433904226757,
+    "latency_p95_ms": 6.00603735,
+    "latency_p99_ms": 7.16804814,
+    "latency_max_ms": 122.582292
+  }
+}

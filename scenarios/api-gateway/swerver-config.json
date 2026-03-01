@@ -1,0 +1,50 @@
+{
+  "server": {
+    "address": "0.0.0.0",
+    "port": 8080,
+    "workers": 2,
+    "max_connections": 2048
+  },
+  "timeouts": {
+    "idle_ms": 30000,
+    "header_ms": 5000,
+    "body_ms": 15000,
+    "write_ms": 15000
+  },
+  "upstreams": [
+    {
+      "name": "users",
+      "servers": [
+        { "address": "users-service", "port": 3001 }
+      ],
+      "health_check": {
+        "path": "/health",
+        "interval_ms": 5000
+      }
+    },
+    {
+      "name": "products",
+      "servers": [
+        { "address": "products-service", "port": 3002 }
+      ],
+      "health_check": {
+        "path": "/health",
+        "interval_ms": 5000
+      }
+    }
+  ],
+  "routes": [
+    {
+      "path_prefix": "/api/users",
+      "upstream": "users",
+      "rewrite_pattern": "/api",
+      "rewrite_replacement": ""
+    },
+    {
+      "path_prefix": "/api/products",
+      "upstream": "products",
+      "rewrite_pattern": "/api",
+      "rewrite_replacement": ""
+    }
+  ]
+}

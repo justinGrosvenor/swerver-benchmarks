@@ -1,6 +1,6 @@
 # Swerver Benchmarks
 
-Reproducible HTTP server benchmarking suite for comparing [swerver](https://github.com/justin/swerver) against production-grade servers.
+Reproducible HTTP server benchmarking suite for comparing [swerver](https://github.com/justinGrosvenor/swerver) against production-grade servers.
 
 ## Quick Start
 
@@ -21,6 +21,7 @@ Reproducible HTTP server benchmarking suite for comparing [swerver](https://gith
 
 - Docker & Docker Compose
 - ~4GB disk space for images
+- ~8 min per server for default suite (~13 min with soak)
 - Python 3 (optional, for comparison reports)
 
 ## Servers
@@ -35,13 +36,31 @@ Reproducible HTTP server benchmarking suite for comparing [swerver](https://gith
 
 ## Benchmark Scenarios
 
-| Scenario | Goal | Method |
-|----------|------|--------|
-| `throughput` | Max requests/sec | GET /health |
-| `latency` | Response time percentiles | GET /echo |
-| `connections` | Connection setup overhead | GET /health (no keep-alive) |
-| `concurrent` | Scaling with connections | Ramp 10→1000 VUs |
-| `mixed` | Realistic traffic | 30% health, 40% GET, 20% POST, 10% large |
+### Core Scenarios (default)
+
+| Scenario | Goal | Method | Duration |
+|----------|------|--------|----------|
+| `throughput` | Max requests/sec | GET /health, 100 VUs | 30s |
+| `latency` | Response time percentiles | GET /echo, 50 VUs | 30s |
+| `connections` | Connection setup overhead | GET /health, no keep-alive | 30s |
+| `concurrent` | Scaling with connections | Ramp 10→1000 VUs | 150s |
+| `mixed` | Realistic traffic | 30% health, 40% GET, 20% POST, 10% blob | 30s |
+
+### Extended Scenarios (default)
+
+| Scenario | Goal | Method | Duration |
+|----------|------|--------|----------|
+| `spike` | Burst traffic resilience | Ramp 50→500→50→1000→50→0 on /health | 120s |
+| `payload` | Payload size scaling | 5 parallel sizes: ~0B, ~15B, 8KB, 64KB, 256KB | 30s |
+| `keepalive` | Connection reuse efficiency | 50 VUs keepalive vs 50 VUs Connection: close | 30s |
+| `rapid-fire` | Maximum capacity ceiling | 200 VUs, zero think time, /health | 30s |
+| `error-handling` | Error path performance | 20% normal, 25% 404, 20% bad method, 20% big header, 15% bad body | 30s |
+
+### Opt-in Scenarios
+
+| Scenario | Goal | Method | Duration |
+|----------|------|--------|----------|
+| `soak` | Long-running stability | Same mix as `mixed`, 50 VUs sustained | 5 min |
 
 ## Benchmark Endpoints
 
@@ -88,7 +107,7 @@ SWERVER_REF=v1.0.0
 ### Full Suite
 
 ```bash
-# All servers, all scenarios
+# All servers, all scenarios (excluding soak)
 ./scripts/run-all.sh
 
 # Specific servers
@@ -96,6 +115,9 @@ SWERVER_REF=v1.0.0
 
 # Specific scenarios
 ./scripts/run-all.sh --scenarios "throughput latency"
+
+# Include soak test (adds ~5 min per server)
+SCENARIOS="throughput latency connections concurrent mixed spike payload keepalive rapid-fire error-handling soak" ./scripts/run-all.sh
 ```
 
 ### Compare Results
@@ -198,6 +220,46 @@ Realistic traffic pattern with varied request types.
 | **nginx** | 34,781 | 4.12 ms | 11.81 ms | 0% |
 | http-zig | 7,544 | 41.23 ms | 42.08 ms | 0% |
 
+### Spike (50→500→1000 VUs, 120s)
+
+Server resilience under sudden traffic bursts.
+
+| Server | Requests/sec | p95 Latency | p99 Latency | Errors |
+|--------|-------------|-------------|-------------|--------|
+| **swerver** | 172,617 | 0.95 ms | 1.78 ms | 0% |
+
+### Payload Size Scaling (5 sizes, 20 VUs each, 30s)
+
+Performance across payload sizes from ~0B to 256KB.
+
+| Server | Total RPS | Tiny (~0B) | Small (~15B) | Medium (8KB) | Large (64KB) | XLarge (256KB) |
+|--------|-----------|------------|--------------|---------------|---------------|----------------|
+| **swerver** | 154,888 | 51,758 | 51,262 | 52,043 | 2 | 2 |
+
+### Keepalive Efficiency (50 VUs per mode, 30s)
+
+Throughput gain from HTTP connection reuse.
+
+| Server | Keepalive RPS | No-Keepalive RPS | Efficiency Gain | p99 Latency |
+|--------|--------------|------------------|-----------------|-------------|
+| **swerver** | 97,227 | 35,642 | +173% | 2.72 ms |
+
+### Rapid-Fire (200 VUs, zero think time, 30s)
+
+Maximum capacity ceiling on minimal endpoint.
+
+| Server | Requests/sec | p95 Latency | p99 Latency | p99.9 Latency | Timeouts |
+|--------|-------------|-------------|-------------|---------------|----------|
+| **swerver** | 124,899 | 1.31 ms | 2.65 ms | 9.36 ms | 0% |
+
+### Error Handling (100 VUs, 30s)
+
+Error path performance (404s, wrong method, oversized headers, bad bodies).
+
+| Server | Requests/sec | p95 Latency | p99 Latency | Correct Status |
+|--------|-------------|-------------|-------------|----------------|
+| **swerver** | 165,132 | 0.95 ms | 1.99 ms | 100% |
+
 ---
 
 ### Key Findings
@@ -214,6 +276,9 @@ Realistic traffic pattern with varied request types.
 - **Concurrent scaling**: Best throughput at 1000 VUs (197K req/s) with lowest p99 (1.79ms)
 - **Mixed workload**: Wins all scenarios after blob size fix — 36K req/s with lowest p99 (8.94ms)
 - **Low latency**: Sub-2ms p99 on throughput and concurrent scenarios
+- **Spike resilience**: 0% errors through 1000 VU spikes, p99 stays under 2ms
+- **Keepalive efficiency**: 173% throughput gain from connection reuse (97K vs 36K rps)
+- **Error handling**: 165K req/s on error paths with 100% correct status codes
 
 **vs other Zig (http-zig):**
 - 1.4x faster throughput, 3.5x faster connection setup

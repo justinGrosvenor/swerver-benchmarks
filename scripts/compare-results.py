@@ -68,7 +68,20 @@ def generate_report(results):
             ('latency_p50_ms', 'Latency p50 (ms)', 2),
             ('latency_p95_ms', 'Latency p95 (ms)', 2),
             ('latency_p99_ms', 'Latency p99 (ms)', 2),
+            ('latency_p999_ms', 'Latency p99.9 (ms)', 2),
             ('error_rate', 'Error Rate', 4),
+            ('timeout_rate', 'Timeout Rate', 4),
+            ('correct_status_rate', 'Correct Status Rate', 4),
+            # Keepalive metrics
+            ('keepalive_rps', 'Keepalive RPS', 0),
+            ('no_keepalive_rps', 'No-Keepalive RPS', 0),
+            ('keepalive_efficiency_pct', 'Keepalive Efficiency %', 1),
+            # Payload per-size metrics
+            ('tiny_rps', 'Tiny RPS (~0B)', 0),
+            ('small_rps', 'Small RPS (~15B)', 0),
+            ('medium_rps', 'Medium RPS (8KB)', 0),
+            ('large_rps', 'Large RPS (64KB)', 0),
+            ('xlarge_rps', 'XLarge RPS (256KB)', 0),
         ]
 
         server_names = sorted(servers.keys())
