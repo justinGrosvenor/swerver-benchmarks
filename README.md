@@ -163,7 +163,7 @@ Tested on macOS (Apple Silicon), single-process, ReleaseFast build (1.8MB binary
 
 ### Docker k6 Benchmarks
 
-Tested on Docker Desktop (macOS, Apple Silicon) with 2 CPU cores and 512MB memory limit per container. k6 with 100 VUs, 30s duration. February 2026.
+Tested on Docker Desktop (macOS, Apple Silicon) with 2 CPU cores and 512MB memory limit per container. k6 with 100 VUs, 30s duration. March 2026.
 
 ### Throughput (GET /health, 100 VUs, 30s)
 
@@ -171,7 +171,7 @@ Maximum requests per second on minimal endpoint.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **swerver** | 168,588 | 1.01 ms | 1.93 ms | 0% |
+| **swerver** | 144,187 | 1.25 ms | 2.49 ms | 0% |
 | **actix** | 129,903 | 1.45 ms | 2.72 ms | 0% |
 | http-zig | 122,597 | 1.13 ms | 2.05 ms | 0% |
 | **nginx** | 121,745 | 1.53 ms | 2.67 ms | 0% |
@@ -183,7 +183,7 @@ Response time percentiles with JSON payload.
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
 | **nginx** | 8,171 | 3.19 ms | 5.18 ms | 0% |
-| **swerver** | 7,979 | 2.81 ms | 5.02 ms | 0% |
+| **swerver** | 8,013 | 2.72 ms | 5.36 ms | 0% |
 | actix | 7,642 | 3.05 ms | 5.52 ms | 0% |
 | http-zig | 5,292 | 2.66 ms | 5.06 ms | 0% |
 
@@ -193,7 +193,7 @@ Connection setup overhead - new TCP connection per request.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **swerver** | 86,971 | 1.78 ms | 3.24 ms | 0% |
+| **swerver** | 88,062 | 1.67 ms | 3.02 ms | 0% |
 | **actix** | 64,733 | 2.31 ms | 9.19 ms | 0% |
 | http-zig | 24,692 | 7.14 ms | 72.46 ms | 0% |
 | nginx | 23,928 | 12.65 ms | 28.68 ms | 0% |
@@ -204,7 +204,7 @@ Scaling with increasing connections.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **swerver** | 196,990 | 0.95 ms | 1.79 ms | 0% |
+| **swerver** | 160,861 | 3.46 ms | 5.38 ms | 0% |
 | **actix** | 159,399 | 1.29 ms | 2.32 ms | 0% |
 | http-zig | 133,499 | 1.10 ms | 2.01 ms | 0% |
 | **nginx** | 132,025 | 1.54 ms | 2.66 ms | 0% |
@@ -215,7 +215,7 @@ Realistic traffic pattern with varied request types.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **swerver** | 36,405 | 3.67 ms | 8.94 ms | 0% |
+| **swerver** | 32,038 | 4.80 ms | 11.71 ms | 0% |
 | **actix** | 35,970 | 4.04 ms | 10.06 ms | 0% |
 | **nginx** | 34,781 | 4.12 ms | 11.81 ms | 0% |
 | http-zig | 7,544 | 41.23 ms | 42.08 ms | 0% |
@@ -226,7 +226,7 @@ Server resilience under sudden traffic bursts.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **swerver** | 172,617 | 0.95 ms | 1.78 ms | 0% |
+| **swerver** | 134,765 | 3.02 ms | 4.96 ms | 0% |
 
 ### Payload Size Scaling (5 sizes, 20 VUs each, 30s)
 
@@ -234,7 +234,7 @@ Performance across payload sizes from ~0B to 256KB.
 
 | Server | Total RPS | Tiny (~0B) | Small (~15B) | Medium (8KB) | Large (64KB) | XLarge (256KB) |
 |--------|-----------|------------|--------------|---------------|---------------|----------------|
-| **swerver** | 154,888 | 51,758 | 51,262 | 52,043 | 2 | 2 |
+| **swerver** | 55,749 | 13,026 | 12,858 | 12,055 | 9,132 | 8,686 |
 
 ### Keepalive Efficiency (50 VUs per mode, 30s)
 
@@ -242,7 +242,7 @@ Throughput gain from HTTP connection reuse.
 
 | Server | Keepalive RPS | No-Keepalive RPS | Efficiency Gain | p99 Latency |
 |--------|--------------|------------------|-----------------|-------------|
-| **swerver** | 97,227 | 35,642 | +173% | 2.72 ms |
+| **swerver** | 94,269 | 33,865 | +178% | 2.83 ms |
 
 ### Rapid-Fire (200 VUs, zero think time, 30s)
 
@@ -250,7 +250,7 @@ Maximum capacity ceiling on minimal endpoint.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | p99.9 Latency | Timeouts |
 |--------|-------------|-------------|-------------|---------------|----------|
-| **swerver** | 124,899 | 1.31 ms | 2.65 ms | 9.36 ms | 0% |
+| **swerver** | 133,108 | 1.14 ms | 2.25 ms | 6.71 ms | 0% |
 
 ### Error Handling (100 VUs, 30s)
 
@@ -258,7 +258,7 @@ Error path performance (404s, wrong method, oversized headers, bad bodies).
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Correct Status |
 |--------|-------------|-------------|-------------|----------------|
-| **swerver** | 165,132 | 0.95 ms | 1.99 ms | 100% |
+| **swerver** | 115,405 | 1.09 ms | 2.20 ms | 100% |
 
 ---
 
@@ -271,17 +271,18 @@ Error path performance (404s, wrong method, oversized headers, bad bodies).
 - Stable under high concurrency (500 connections, <2ms avg latency)
 
 **Docker comparison (k6, containerized):**
-- **Throughput**: 169K req/s — 30% faster than actix, 38% faster than nginx
-- **Connection handling**: 3.6x faster than nginx at new connections (87K vs 24K conn/s)
-- **Concurrent scaling**: Best throughput at 1000 VUs (197K req/s) with lowest p99 (1.79ms)
-- **Mixed workload**: Wins all scenarios after blob size fix — 36K req/s with lowest p99 (8.94ms)
-- **Low latency**: Sub-2ms p99 on throughput and concurrent scenarios
-- **Spike resilience**: 0% errors through 1000 VU spikes, p99 stays under 2ms
-- **Keepalive efficiency**: 173% throughput gain from connection reuse (97K vs 36K rps)
-- **Error handling**: 165K req/s on error paths with 100% correct status codes
+- **Throughput**: 144K req/s — 11% faster than actix, 18% faster than nginx
+- **Connection handling**: 3.7x faster than nginx at new connections (88K vs 24K conn/s)
+- **Concurrent scaling**: Best throughput at 1000 VUs (161K req/s)
+- **Mixed workload**: Competitive across all request types — 32K req/s with 0% errors
+- **Low latency**: Sub-2.5ms p99 on throughput, sub-3ms on connections
+- **Spike resilience**: 0% errors through 1000 VU spikes, 135K req/s sustained
+- **Keepalive efficiency**: 178% throughput gain from connection reuse (94K vs 34K rps)
+- **Payload scaling**: Large bodies fully supported — 9.1K req/s at 64KB, 8.7K req/s at 256KB (streaming body accumulation)
+- **Error handling**: 115K req/s on error paths with 100% correct status codes
 
 **vs other Zig (http-zig):**
-- 1.4x faster throughput, 3.5x faster connection setup
+- 1.2x faster throughput, 3.6x faster connection setup
 - Both use fixed thread pools; swerver's event loop avoids per-connection blocking
 
 Results are saved to `results/` as JSON:

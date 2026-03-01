@@ -24,14 +24,12 @@ export const options = {
     summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
 };
 
-// Large header value — big enough to stress header parsing but not so large
-// that servers drop the connection without responding (which causes timeouts)
-const bigHeaderValue = 'X'.repeat(4 * 1024);
+// Large header value — 16KB to stress header parsing and trigger 431 responses
+const bigHeaderValue = 'X'.repeat(16 * 1024);
 
-// Shorter timeout for error requests — servers may be slow to respond to bad requests
 const errorParams = {
     ...defaultParams,
-    timeout: '3s',
+    timeout: '10s',
 };
 
 export default function() {
