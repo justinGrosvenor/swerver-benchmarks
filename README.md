@@ -204,7 +204,7 @@ Scaling with increasing connections.
 
 | Server | Requests/sec | p95 Latency | p99 Latency | Errors |
 |--------|-------------|-------------|-------------|--------|
-| **swerver** | 151,635 | 3.52 ms | 5.41 ms | 0% |
+| **swerver** | 162,865 | 3.28 ms | 5.01 ms | 0% |
 | **actix** | 159,399 | 1.29 ms | 2.32 ms | 0% |
 | http-zig | 133,499 | 1.10 ms | 2.01 ms | 0% |
 | **nginx** | 132,025 | 1.54 ms | 2.66 ms | 0% |
@@ -273,7 +273,7 @@ Error path performance (404s, wrong method, oversized headers, bad bodies).
 **Docker comparison (k6, containerized):**
 - **Throughput**: 147K req/s — 13% faster than actix, 21% faster than nginx
 - **Connection handling**: 3.7x faster than nginx at new connections (89K vs 24K conn/s)
-- **Concurrent scaling**: Top throughput at 1000 VUs (152K req/s)
+- **Concurrent scaling**: Best throughput at 1000 VUs (163K req/s)
 - **Mixed workload**: 35.2K req/s — matches actix, beats nginx, with 0% errors
 - **Low latency**: Sub-2.4ms p99 on throughput, sub-3ms on connections
 - **Spike resilience**: 0% errors through 1000 VU spikes, 135K req/s sustained
