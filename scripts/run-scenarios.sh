@@ -4,8 +4,12 @@
 #
 # Each scenario spins up swerver + backend microservices, runs k6 tests,
 # and collects results.
+#
+# By default the swerver Dockerfile clones SWERVER_REF (default: main) so numbers
+# are reproducible across machines. Set USE_LOCAL_SWERVER=1 to rsync the local
+# working copy at ../swerver into the build context instead.
 
-set -e
+set -euo pipefail
 
 BENCH_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BENCH_ROOT"
@@ -23,20 +27,30 @@ echo "Results:   $RESULTS_DIR"
 echo "========================================"
 echo ""
 
-# ---- Sync swerver sources ----
-LOCAL_SWERVER_DIR="$(cd .. && pwd)/swerver"
+# ---- Sync swerver sources (opt-in) ----
 LOCAL_SWERVER_CONTEXT="./servers/swerver/swerver-src"
-if [[ -d "$LOCAL_SWERVER_DIR" ]]; then
-    echo "Syncing local swerver sources..."
+if [[ "${USE_LOCAL_SWERVER:-0}" == "1" ]]; then
+    LOCAL_SWERVER_DIR="${LOCAL_SWERVER_DIR:-$(cd .. && pwd)/swerver}"
+    if [[ ! -d "$LOCAL_SWERVER_DIR" ]]; then
+        echo "USE_LOCAL_SWERVER=1 but LOCAL_SWERVER_DIR ($LOCAL_SWERVER_DIR) not found" >&2
+        exit 1
+    fi
+    echo "Syncing local swerver sources from $LOCAL_SWERVER_DIR..."
+    rm -rf "$LOCAL_SWERVER_CONTEXT"
     mkdir -p "$LOCAL_SWERVER_CONTEXT"
     rsync -a --delete \
         --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' \
         "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
+else
+    rm -rf "$LOCAL_SWERVER_CONTEXT"
 fi
 
 # ---- Build k6 image ----
 echo "Building k6..."
-docker build -t "$K6_IMAGE" ./k6 2>&1 | tail -2
+if ! docker build -t "$K6_IMAGE" ./k6; then
+    echo "ERROR: k6 image build failed" >&2
+    exit 1
+fi
 echo ""
 
 # ---- Compose helper (always runs from scenario dir) ----
@@ -55,6 +69,9 @@ run_k6() {
 
     echo "  --- $test_name ---"
 
+    # The grep|tail pipe is intentionally fault-tolerant under set -euo pipefail.
+    # Success is judged by whether the JSON result file lands on disk.
+    set +e
     docker run --rm \
         --network "$network" \
         -v "$BENCH_ROOT/results:/results" \
@@ -66,6 +83,7 @@ run_k6() {
         -e K6_DURATION=30s \
         "$K6_IMAGE" \
         "/scenarios/${test_name}.js" 2>&1 | grep -E "^(Summary| |running )" | tail -5
+    set -e
 
     # Find and move result file
     local result_file
@@ -92,7 +110,7 @@ wait_for_healthy() {
         echo -n "."
     done
     echo " TIMEOUT"
-    dc "$scenario_dir" logs swerver 2>&1 | tail -20
+    dc "$scenario_dir" logs swerver 2>&1 | tail -20 || true
     return 1
 }
 
@@ -113,9 +131,16 @@ for scenario in $SCENARIOS; do
 
     # Build and start
     echo "  Building..."
-    dc "$SCENARIO_DIR" build 2>&1 | tail -5
+    if ! dc "$SCENARIO_DIR" build; then
+        echo "  ERROR: build failed for $scenario" >&2
+        continue
+    fi
     echo "  Starting..."
-    dc "$SCENARIO_DIR" up -d 2>&1 | tail -5
+    if ! dc "$SCENARIO_DIR" up -d; then
+        echo "  ERROR: failed to start $scenario" >&2
+        dc "$SCENARIO_DIR" down 2>/dev/null || true
+        continue
+    fi
 
     if ! wait_for_healthy "$SCENARIO_DIR"; then
         echo "  SKIP: swerver failed to start"

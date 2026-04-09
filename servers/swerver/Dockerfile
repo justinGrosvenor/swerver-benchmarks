@@ -2,7 +2,7 @@
 FROM debian:bookworm-slim AS builder
 
 # Install Zig and build tools
-ARG ZIG_PACKAGE=zig-aarch64-linux-0.16.0-dev.2637+6a9510c0e
+ARG ZIG_PACKAGE=zig-aarch64-linux-0.16.0-dev.3133+5ec8e45f3
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl xz-utils git libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
@@ -36,12 +36,12 @@ RUN if [ -d "/build/swerver-local" ] && [ "$(ls -A /build/swerver-local 2>/dev/n
         echo "local" > /build/git-ref.txt; \
     fi
 
-# Build with release optimizations
+# Build with release optimizations.
+# Fail loudly on build error rather than silently falling back to a slower
+# optimization mode (which would produce misleading benchmark numbers).
 WORKDIR /build/swerver
 ARG ZIG_BUILD_FLAGS=""
-RUN zig build -Doptimize=ReleaseFast ${ZIG_BUILD_FLAGS} 2>&1 || \
-    zig build -Doptimize=ReleaseSafe ${ZIG_BUILD_FLAGS} 2>&1 || \
-    zig build ${ZIG_BUILD_FLAGS}
+RUN zig build -Doptimize=ReleaseFast ${ZIG_BUILD_FLAGS}
 
 # Runtime stage
 FROM debian:bookworm-slim

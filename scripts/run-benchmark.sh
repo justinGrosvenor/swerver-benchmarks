@@ -1,20 +1,30 @@
 #!/bin/bash
 # Run benchmark against a specific server
 # Usage: ./run-benchmark.sh <server> [--scenario <name>] [--vus <n>] [--duration <time>]
+#
+# By default the swerver Dockerfile clones SWERVER_REF (default: main) so numbers
+# are reproducible across machines. Set USE_LOCAL_SWERVER=1 to rsync the local
+# working copy at ../swerver into the build context instead.
 
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Sync local swerver sources if available
-LOCAL_SWERVER_DIR="$(cd .. && pwd)/swerver"
+# Sync local swerver sources (opt-in)
 LOCAL_SWERVER_CONTEXT="./servers/swerver/swerver-src"
-if [[ -d "$LOCAL_SWERVER_DIR" ]]; then
-    echo "Syncing local swerver sources..."
+if [[ "${USE_LOCAL_SWERVER:-0}" == "1" ]]; then
+    LOCAL_SWERVER_DIR="${LOCAL_SWERVER_DIR:-$(cd .. && pwd)/swerver}"
+    if [[ ! -d "$LOCAL_SWERVER_DIR" ]]; then
+        echo "USE_LOCAL_SWERVER=1 but LOCAL_SWERVER_DIR ($LOCAL_SWERVER_DIR) not found" >&2
+        exit 1
+    fi
+    echo "Syncing local swerver sources from $LOCAL_SWERVER_DIR..."
     rm -rf "$LOCAL_SWERVER_CONTEXT"
     mkdir -p "$LOCAL_SWERVER_CONTEXT"
     rsync -a --delete --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' \
         "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
+else
+    rm -rf "$LOCAL_SWERVER_CONTEXT"
 fi
 
 # Defaults
@@ -63,8 +73,14 @@ rm -f "results/${SERVER}_${SCENARIO}.json"
 
 # Build
 echo "Building $SERVER..."
-docker-compose build "$SERVER" 2>&1 | tail -3
-docker build -t "$K6_IMAGE" ./k6 2>&1 | tail -3
+if ! docker-compose build "$SERVER"; then
+    echo "ERROR: docker-compose build failed for $SERVER" >&2
+    exit 1
+fi
+if ! docker build -t "$K6_IMAGE" ./k6; then
+    echo "ERROR: k6 image build failed" >&2
+    exit 1
+fi
 
 # Cleanup on exit
 cleanup() {
@@ -74,7 +90,10 @@ trap cleanup EXIT
 
 # Start server (creates the compose network)
 echo "Starting $SERVER..."
-docker-compose up -d "$SERVER" 2>/dev/null
+if ! docker-compose up -d "$SERVER"; then
+    echo "ERROR: failed to start $SERVER" >&2
+    exit 1
+fi
 
 # Wait for healthy
 echo -n "Waiting..."
@@ -106,6 +125,7 @@ case "$SCENARIO" in
     payload|keepalive|spike|concurrent|soak) ENV_FLAGS="" ;;
 esac
 
+K6_EXIT=0
 docker run --rm \
     --network "$NETWORK" \
     -v "$(pwd)/results:/results" \
@@ -115,7 +135,11 @@ docker run --rm \
     -e TARGET_HOST="$SERVER" \
     -e TARGET_PORT=8080 \
     "$K6_IMAGE" \
-    "/scenarios/${SCENARIO}.js" || true
+    "/scenarios/${SCENARIO}.js" || K6_EXIT=$?
+
+if [[ $K6_EXIT -ne 0 ]]; then
+    echo "WARNING: k6 exited with status $K6_EXIT (thresholds may have failed)"
+fi
 
 # Verify and save result
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)

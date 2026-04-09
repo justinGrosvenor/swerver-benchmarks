@@ -1,7 +1,10 @@
 #!/bin/bash
 # Run the API Gateway scenario
 # Usage: ./run.sh [--vus <n>] [--duration <time>]
-set -e
+#
+# By default the swerver Dockerfile clones SWERVER_REF (default: main).
+# Set USE_LOCAL_SWERVER=1 to rsync the local working copy at ../../../swerver instead.
+set -euo pipefail
 
 cd "$(dirname "$0")"
 SCENARIO_DIR="$(pwd)"
@@ -17,20 +20,28 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Sync local swerver sources
-LOCAL_SWERVER_DIR="$(cd ../.. && pwd)/../swerver"
+# Sync local swerver sources (opt-in)
 LOCAL_SWERVER_CONTEXT="../../servers/swerver/swerver-src"
-if [[ -d "$LOCAL_SWERVER_DIR" ]]; then
-    echo "Syncing local swerver sources..."
+if [[ "${USE_LOCAL_SWERVER:-0}" == "1" ]]; then
+    LOCAL_SWERVER_DIR="${LOCAL_SWERVER_DIR:-$(cd ../../.. && pwd)/swerver}"
+    if [[ ! -d "$LOCAL_SWERVER_DIR" ]]; then
+        echo "USE_LOCAL_SWERVER=1 but LOCAL_SWERVER_DIR ($LOCAL_SWERVER_DIR) not found" >&2
+        exit 1
+    fi
+    echo "Syncing local swerver sources from $LOCAL_SWERVER_DIR..."
     rm -rf "$LOCAL_SWERVER_CONTEXT"
     mkdir -p "$LOCAL_SWERVER_CONTEXT"
     rsync -a --delete --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' \
         "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
+else
+    rm -rf "$LOCAL_SWERVER_CONTEXT"
 fi
 
 K6_IMAGE="grafana/k6:latest"
 COMPOSE_PROJECT=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
-NETWORK="${COMPOSE_PROJECT}_scenario"
+# This scenario's compose file does not declare a custom network, so docker-compose
+# creates "<project>_default".
+NETWORK="${COMPOSE_PROJECT}_default"
 
 echo "========================================"
 echo "Scenario: API Gateway"
@@ -43,9 +54,15 @@ mkdir -p results
 
 # Build and start
 echo "Building services..."
-docker-compose build 2>&1 | tail -5
+if ! docker-compose build; then
+    echo "ERROR: docker-compose build failed" >&2
+    exit 1
+fi
 echo "Starting services..."
-docker-compose up -d
+if ! docker-compose up -d; then
+    echo "ERROR: docker-compose up failed" >&2
+    exit 1
+fi
 
 # Cleanup on exit
 cleanup() {

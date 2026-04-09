@@ -4,8 +4,13 @@
 #
 # Each server is tested in isolation (all other containers stopped).
 # k6 runs via `docker run` with explicit volume mounts for reliable result collection.
+#
+# To benchmark a local working copy of swerver instead of the git ref, set
+# USE_LOCAL_SWERVER=1 and place the repo at ../swerver relative to this one.
+# By default the Dockerfile clones SWERVER_REF (default: main) so numbers are
+# reproducible across machines.
 
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
@@ -46,29 +51,48 @@ echo "Results:   $RESULTS_DIR"
 echo "========================================"
 echo ""
 
-# ---- Sync local swerver sources ----
-LOCAL_SWERVER_DIR="$(cd .. && pwd)/swerver"
+# ---- Sync local swerver sources (opt-in) ----
+# Default: build the Dockerfile's SWERVER_REF (pinned git commit) so results
+# are reproducible across machines. Set USE_LOCAL_SWERVER=1 to rsync the local
+# working copy into the build context instead.
 LOCAL_SWERVER_CONTEXT="./servers/swerver/swerver-src"
-if [[ -d "$LOCAL_SWERVER_DIR" ]]; then
-    echo "Syncing local swerver sources..."
+if [[ "${USE_LOCAL_SWERVER:-0}" == "1" ]]; then
+    LOCAL_SWERVER_DIR="${LOCAL_SWERVER_DIR:-$(cd .. && pwd)/swerver}"
+    if [[ ! -d "$LOCAL_SWERVER_DIR" ]]; then
+        echo "USE_LOCAL_SWERVER=1 but LOCAL_SWERVER_DIR ($LOCAL_SWERVER_DIR) not found" >&2
+        exit 1
+    fi
+    echo "Syncing local swerver sources from $LOCAL_SWERVER_DIR..."
     rm -rf "$LOCAL_SWERVER_CONTEXT"
     mkdir -p "$LOCAL_SWERVER_CONTEXT"
     rsync -a --delete \
         --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' \
         "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
+else
+    # Ensure no stale local checkout from a previous run contaminates the build.
+    rm -rf "$LOCAL_SWERVER_CONTEXT"
 fi
 
 # ---- Create results directory ----
 mkdir -p "$RESULTS_DIR"
-# Clean leftover result files
-rm -f results/*.json
+# Clean leftover result files (safe — the directory exists from the mkdir above)
+find results -maxdepth 1 -name "*.json" -delete 2>/dev/null || true
 
 # ---- Build everything ----
+# Don't pipe to tail — it hides build failures behind a successful pipe.
+# With pipefail set this would still fail, but dropping the pipe gives
+# readable output too.
 echo "Building servers..."
-docker-compose build $SERVERS 2>&1 | tail -5
+if ! docker-compose build $SERVERS; then
+    echo "ERROR: docker-compose build failed" >&2
+    exit 1
+fi
 echo ""
 echo "Building k6..."
-docker build -t "$K6_IMAGE" ./k6 2>&1 | tail -3
+if ! docker build -t "$K6_IMAGE" ./k6; then
+    echo "ERROR: k6 image build failed" >&2
+    exit 1
+fi
 echo ""
 
 # ---- Ensure clean state ----
@@ -102,6 +126,10 @@ run_benchmark() {
 
     # Run k6 directly via docker run — reliable volume mount
     # k6 writes to /results/{server}_{scenario}.json (server-namespaced to prevent overwrites)
+    # The grep|tail pipe is intentionally fault-tolerant: under set -euo pipefail
+    # we don't want a "no grep matches" or k6 threshold failure to abort the
+    # surrounding loop. Success is judged by whether the JSON result file exists.
+    set +e
     docker run --rm \
         --network "$NETWORK" \
         -v "$(pwd)/results:/results" \
@@ -112,6 +140,7 @@ run_benchmark() {
         -e TARGET_PORT=8080 \
         "$K6_IMAGE" \
         "/scenarios/${scenario}.js" 2>&1 | grep -E "^(Summary| |running \(0m(29|30))" | tail -5
+    set -e
 
     # Verify result
     if [[ ! -f "$result_file" ]]; then
@@ -152,10 +181,15 @@ for server in $SERVERS; do
 
     # Stop everything, start only this server
     docker-compose stop 2>/dev/null || true
-    docker-compose up -d "$server" 2>/dev/null
+    if ! docker-compose up -d "$server"; then
+        echo "  SKIP: $server failed to start (docker-compose up failed)"
+        FAILED=$((FAILED + 1))
+        continue
+    fi
 
     if ! wait_for_server "$server"; then
         echo "  SKIP: $server failed to start"
+        docker-compose logs "$server" 2>&1 | tail -20
         FAILED=$((FAILED + 1))
         continue
     fi
