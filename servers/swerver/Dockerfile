@@ -38,9 +38,10 @@ RUN if [ -d "/build/swerver-local" ] && [ "$(ls -A /build/swerver-local 2>/dev/n
 
 # Build with release optimizations
 WORKDIR /build/swerver
-RUN zig build -Doptimize=ReleaseFast 2>&1 || \
-    zig build -Doptimize=ReleaseSafe 2>&1 || \
-    zig build
+ARG ZIG_BUILD_FLAGS=""
+RUN zig build -Doptimize=ReleaseFast ${ZIG_BUILD_FLAGS} 2>&1 || \
+    zig build -Doptimize=ReleaseSafe ${ZIG_BUILD_FLAGS} 2>&1 || \
+    zig build ${ZIG_BUILD_FLAGS}
 
 # Runtime stage
 FROM debian:bookworm-slim

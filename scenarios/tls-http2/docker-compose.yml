@@ -1,0 +1,83 @@
+x-server-defaults: &server-defaults
+  deploy:
+    resources:
+      limits:
+        cpus: "${BENCHMARK_CPUS:-2}"
+        memory: "${BENCHMARK_MEMORY:-512m}"
+  cpus: "${BENCHMARK_CPUS:-2}"
+  mem_limit: "${BENCHMARK_MEMORY:-512m}"
+  networks:
+    - scenario
+  restart: "no"
+
+services:
+  swerver:
+    <<: *server-defaults
+    build:
+      context: ../../servers/swerver
+      args:
+        SWERVER_REF: "${SWERVER_REF:-main}"
+        SWERVER_REPO: "${SWERVER_REPO:-https://github.com/justinGrosvenor/swerver.git}"
+        SWERVER_LOCAL_PATH: "1"
+        ZIG_BUILD_FLAGS: "-Denable-tls=true -Denable-http2=true"
+    command: ["swerver", "--config", "/app/config.json"]
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./servers/swerver/config.json:/app/config.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sSfk", "https://localhost:8443/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  nginx:
+    <<: *server-defaults
+    build:
+      context: ../../servers/nginx
+    command: ["openresty", "-g", "daemon off;", "-c", "/usr/local/openresty/nginx/conf/nginx-tls.conf"]
+    ports:
+      - "8444:8443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+      - ./servers/nginx/nginx-tls.conf:/usr/local/openresty/nginx/conf/nginx-tls.conf:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sSfk", "https://localhost:8443/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  actix:
+    <<: *server-defaults
+    build:
+      context: ./servers/actix
+      dockerfile: Dockerfile
+    ports:
+      - "8445:8443"
+    volumes:
+      - ./certs:/app/certs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sSfk", "https://localhost:8443/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  apisix:
+    <<: *server-defaults
+    build:
+      context: ./servers/apisix
+      dockerfile: Dockerfile
+    ports:
+      - "8446:9443"
+    volumes:
+      - ./certs:/certs:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sSfk", "https://localhost:9443/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+networks:
+  scenario:
+    driver: bridge

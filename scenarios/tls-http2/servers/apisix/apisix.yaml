@@ -1,0 +1,56 @@
+ssls:
+  - id: 1
+    snis:
+      - localhost
+      - apisix
+      - benchmark.local
+    cert: |
+CERT_PLACEHOLDER
+    key: |
+KEY_PLACEHOLDER
+
+routes:
+  - id: health
+    uris:
+      - /health
+    methods:
+      - GET
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - "return function(conf, ctx) ngx.exit(200) end"
+
+  - id: echo-get
+    uris:
+      - /echo
+    methods:
+      - GET
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - "return function(conf, ctx) ngx.header['Content-Type'] = 'application/json'; ngx.print('{\"status\":\"ok\"}'); ngx.exit(200) end"
+
+  - id: echo-post
+    uris:
+      - /echo
+    methods:
+      - POST
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - "return function(conf, ctx) ngx.req.read_body(); local body = ngx.req.get_body_data() or '{}'; ngx.header['Content-Type'] = 'application/json'; ngx.print(body); ngx.exit(200) end"
+
+  - id: blob
+    uris:
+      - /blob
+    methods:
+      - GET
+    plugins:
+      serverless-pre-function:
+        phase: access
+        functions:
+          - "return function(conf, ctx) ngx.header['Content-Type'] = 'application/octet-stream'; ngx.print(string.rep('\\0', 8192)); ngx.exit(200) end"
+#END

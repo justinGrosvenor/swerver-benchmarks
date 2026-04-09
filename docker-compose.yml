@@ -67,6 +67,18 @@ services:
       timeout: 5s
       retries: 10
 
+  apisix:
+    <<: *server-defaults
+    build:
+      context: ./servers/apisix
+    ports:
+      - "8084:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
   # ============================================================
   # Load Generator
   # ============================================================
@@ -92,6 +104,8 @@ services:
       httpzig:
         condition: service_healthy
       actix:
+        condition: service_healthy
+      apisix:
         condition: service_healthy
     profiles:
       - benchmark

@@ -10,7 +10,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 # Defaults
-SERVERS="${SERVERS:-swerver nginx httpzig actix}"
+SERVERS="${SERVERS:-swerver nginx httpzig actix apisix}"
 # Soak excluded by default (5 min) — opt-in: SCENARIOS="throughput latency connections concurrent mixed spike payload keepalive rapid-fire error-handling soak"
 SCENARIOS="${SCENARIOS:-throughput latency connections concurrent mixed spike payload keepalive rapid-fire error-handling}"
 VUS="${K6_VUS:-100}"

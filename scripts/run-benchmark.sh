@@ -36,8 +36,8 @@ done
 
 # Validate
 case $SERVER in
-    swerver|nginx|httpzig|actix) ;;
-    *) echo "Unknown server: $SERVER (available: swerver, nginx, httpzig, actix)"; exit 1 ;;
+    swerver|nginx|httpzig|actix|apisix) ;;
+    *) echo "Unknown server: $SERVER (available: swerver, nginx, httpzig, actix, apisix)"; exit 1 ;;
 esac
 
 if [[ ! -f "k6/scenarios/${SCENARIO}.js" ]]; then

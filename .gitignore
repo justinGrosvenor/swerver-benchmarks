@@ -4,6 +4,15 @@
 # Results (generated)
 results/*.json
 results/run_*/
+scenarios/*/results/*.json
+
+# Self-signed certs (generated)
+scenarios/*/certs/*.crt
+scenarios/*/certs/*.key
+
+# Python bytecode
+__pycache__/
+*.pyc
 
 # Docker
 .docker/

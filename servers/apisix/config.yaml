@@ -1,0 +1,17 @@
+deployment:
+  role: data_plane
+  role_data_plane:
+    config_provider: yaml
+
+apisix:
+  node_listen: 8080
+  enable_admin: false
+  enable_ipv6: false
+  enable_http2: true
+
+nginx_config:
+  worker_processes: auto
+  error_log_level: warn
+  http:
+    access_log: /dev/null
+    keepalive_timeout: 75s
