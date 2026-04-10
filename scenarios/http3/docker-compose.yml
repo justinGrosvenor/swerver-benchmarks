@@ -1,0 +1,51 @@
+x-server-defaults: &server-defaults
+  deploy:
+    resources:
+      limits:
+        cpus: "${BENCHMARK_CPUS:-2}"
+        memory: "${BENCHMARK_MEMORY:-512m}"
+  cpus: "${BENCHMARK_CPUS:-2}"
+  mem_limit: "${BENCHMARK_MEMORY:-512m}"
+  networks:
+    - scenario
+  restart: "no"
+
+services:
+  swerver:
+    <<: *server-defaults
+    build:
+      context: ../../servers/swerver
+      args:
+        SWERVER_REF: "${SWERVER_REF:-main}"
+        SWERVER_REPO: "${SWERVER_REPO:-https://github.com/justinGrosvenor/swerver.git}"
+        SWERVER_LOCAL_PATH: "1"
+        ZIG_BUILD_FLAGS: "-Denable-tls=true -Denable-http2=true -Denable-http3=true"
+    command: ["swerver", "--config", "/app/config.json"]
+    ports:
+      - "9543:9443/udp"
+      - "9543:9443/tcp"
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./servers/swerver/config.json:/app/config.json:ro
+    healthcheck:
+      # h3 listens on UDP — `nc -uz` doesn't work cleanly here, so check the
+      # TCP listener instead (swerver binds the same port for h1/h2 fallback).
+      test: ["CMD-SHELL", "curl -sSfk https://localhost:9443/health || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  h2load:
+    build:
+      context: ./loadgen
+    networks:
+      - scenario
+    profiles:
+      - loadgen
+    depends_on:
+      swerver:
+        condition: service_healthy
+
+networks:
+  scenario:
+    driver: bridge

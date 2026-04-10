@@ -1,0 +1,20 @@
+{
+  "server": {
+    "port": 9443,
+    "max_connections": 2048
+  },
+  "tls": {
+    "cert_path": "/app/certs/server.crt",
+    "key_path": "/app/certs/server.key"
+  },
+  "quic": {
+    "enabled": true,
+    "port": 9443,
+    "cert_path": "/app/certs/server.crt",
+    "key_path": "/app/certs/server.key"
+  },
+  "timeouts": {
+    "idle_ms": 75000,
+    "header_ms": 10000
+  }
+}

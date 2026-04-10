@@ -1,0 +1,5 @@
+# Self-signed cert + benchmark output are local artifacts.
+certs/server.crt
+certs/server.key
+results/*.txt
+results/*.json

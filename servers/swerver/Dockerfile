@@ -1,5 +1,10 @@
-# Build stage
-FROM debian:bookworm-slim AS builder
+# Build stage. We use Debian Trixie because it ships OpenSSL 3.5+,
+# which has SSL_set_quic_tls_cbs / SSL_set_quic_tls_transport_params —
+# the QUIC TLS callback API swerver's HTTP/3 stack uses. Bookworm's
+# OpenSSL 3.0.x doesn't have those symbols and the link fails when
+# h3 is enabled. Bookworm still works for h1-only builds, but Trixie
+# works for both, so we use it everywhere.
+FROM debian:trixie-slim AS builder
 
 # Install Zig and build tools
 ARG ZIG_PACKAGE=zig-aarch64-linux-0.16.0-dev.3133+5ec8e45f3
@@ -43,8 +48,8 @@ WORKDIR /build/swerver
 ARG ZIG_BUILD_FLAGS=""
 RUN zig build -Doptimize=ReleaseFast ${ZIG_BUILD_FLAGS}
 
-# Runtime stage
-FROM debian:bookworm-slim
+# Runtime stage — Trixie too, so libssl.so.3 matches the build target.
+FROM debian:trixie-slim
 
 RUN apt-get update && \
     apt-get install -y ca-certificates curl wget && \
