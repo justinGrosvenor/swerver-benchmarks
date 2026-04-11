@@ -73,8 +73,13 @@ All servers must implement these endpoints:
 | `/echo` | GET | 200, `{"status":"ok"}` |
 | `/echo` | POST | 200, echo request body |
 | `/blob` | GET | 200, 8KB zeros |
+| `/plaintext` | GET | 200, `Hello, World!` |
+| `/json` | GET | 200, `{"message":"Hello, World!"}` |
+| `/pipeline` | GET | 200, `ok` (HttpArena pipelining) |
+| `/baseline11` | GET/POST | 200, sum of `?a=&b=` query params + body (HttpArena h1) |
+| `/baseline2` | GET | 200, sum of `?a=&b=` query params (HttpArena h2/h3) |
 
-Swerver has these built-in as of the latest version.
+Swerver has all of the above built-in. Hot endpoints (`/health`, `/plaintext`, `/json`, `/pipeline`, `/baseline11?a=1&b=1`, `/baseline2?a=1&b=1`) are served from a per-second-refreshed pre-encoded response cache that skips the router, middleware, and response encoder (PR PERF-3).
 
 ## Configuration
 
@@ -164,7 +169,7 @@ Tested on macOS (Apple Silicon), single-process, ReleaseFast build (1.8MB binary
 
 ### Docker k6 Benchmarks
 
-Tested on Docker Desktop (macOS, Apple Silicon) with 2 CPU cores and 512MB memory limit per container. k6 with 100 VUs, 30s duration. April 2026.
+Tested on Docker Desktop (macOS, Apple Silicon) with 2 CPU cores and 512MB memory limit per container. k6 with 100 VUs, 30s duration. April 2026. Re-validated after the middleware fix session (post `2ceef54` — security headers, post-response hooks, CORS max-age, metrics recording wired) with no regression: throughput 146.8K (was 147.4K, -0.4%), concurrent 153.9K (was 156.9K, -1.9%), both within run-to-run noise.
 
 ### Throughput (GET /health, 100 VUs, 30s)
 
@@ -317,6 +322,19 @@ HTTPS and HTTP/2-over-TLS workloads. Tests swerver's TLS stack against nginx, ac
 | nginx | 1,578 | 62.37 ms | 33.8% |
 | apisix | 1,552 | 58.64 ms | 32.3% |
 
+### HTTP/3 over QUIC (h2load, docker loopback)
+
+First h3 baseline — unoptimized first version, AES-128-GCM, single-threaded event loop, no GSO/recvmmsg. April 2026.
+
+| Scenario | Connections | Requests/sec | Mean Latency | p99.5 Latency |
+|----------|------------|-------------|-------------|---------------|
+| GET /health (throughput) | 100 | **16,500** | — | — |
+| GET /health (sequential) | 1 | **7,600** | 128 us | 1.16 ms |
+
+The h3/h1 gap (16.5K vs 149K = 11%) is per-packet AEAD overhead + no batching. Performance plan targets 500K+ req/s on Linux with GSO (`UDP_SEGMENT`) + `recvmmsg` — see `docs/design/8.0-h3-performance-plan.md`.
+
+HttpArena submission infrastructure is ready (`httparena/Dockerfile` + `meta.json`). Subscribed to h1 baseline / pipelined / limited-conn + h2 baseline + h3 baseline + static-h2 + static-h3. All endpoints verified against real curl on all three protocols via `scripts/test-httparena-local.sh`.
+
 ---
 
 ### Key Findings
@@ -355,6 +373,18 @@ TLS + HTTP/2 (April 2026):
 - 1.4x faster throughput, 3.1x faster connection setup, 4.9x faster mixed workload
 - http-zig wins on payload (thread-per-connection avoids event loop overhead for large bodies)
 - http-zig hits protocol errors on error-handling (43ms p95, 80% correct status)
+
+**HTTP/3 (first baseline, unoptimized):**
+- 16.5K req/s over QUIC — 11% of h1 throughput, expected for a first-pass stack with per-packet AEAD and no UDP batching
+- Sequential latency 128 us mean, 1.16 ms p99.5 — competitive with h1 latency profile
+- Zero errors across all h3 smoke tests (GET + POST body dispatch, multiple endpoints)
+- Performance plan tracks 30x improvement target via GSO, recvmmsg, pre-encoded cache (already implemented), and crypto in-place (already implemented)
+
+**Middleware session (April 2026 — no regression):**
+- Wired `executePost` in the router (access logs, metrics, structured logging now fire)
+- Wired `security.evaluate` as default pre-request middleware (HSTS, CSP, X-Frame-Options, Referrer-Policy now on every response)
+- Baked security headers into pre-encoded response cache (hot path + cold path both covered)
+- Post-fix benchmarks within 0.4% of pre-fix (146.8K vs 147.4K throughput) — no regression
 
 Results are saved to `results/` as JSON:
 
