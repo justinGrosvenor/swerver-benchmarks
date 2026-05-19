@@ -1,0 +1,60 @@
+services:
+  swerver:
+    build:
+      context: ../../servers/swerver
+      args:
+        SWERVER_LOCAL_PATH: "true"
+    command: ["swerver", "--config", "/app/config.json"]
+    volumes:
+      - ./swerver-config.json:/app/config.json:ro
+    ports:
+      - "8080:8080"
+    security_opt:
+      - seccomp:unconfined
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      api-v1:
+        condition: service_healthy
+      api-v2:
+        condition: service_healthy
+
+  api-v1:
+    build: ./backends/api-service
+    environment:
+      - APP_VERSION=v1
+      - PORT=3000
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 256m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  api-v2:
+    build: ./backends/api-service
+    environment:
+      - APP_VERSION=v2
+      - PORT=3000
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 256m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 10

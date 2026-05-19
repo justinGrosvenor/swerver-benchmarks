@@ -7,11 +7,12 @@
 FROM debian:trixie-slim AS builder
 
 # Install Zig and build tools
-ARG ZIG_PACKAGE=zig-aarch64-linux-0.16.0-dev.3133+5ec8e45f3
+ARG ZIG_PACKAGE=zig-aarch64-linux-0.16.0
+ARG ZIG_URL=https://ziglang.org/download/0.16.0/${ZIG_PACKAGE}.tar.xz
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl xz-utils git libssl-dev ca-certificates && \
+    apt-get install -y --no-install-recommends curl xz-utils git libssl-dev zlib1g-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    curl -L "https://ziglang.org/builds/${ZIG_PACKAGE}.tar.xz" | tar -xJ && \
+    curl -L "${ZIG_URL}" | tar -xJ && \
     mv "${ZIG_PACKAGE}" /zig
 
 ENV PATH="/zig:${PATH}"

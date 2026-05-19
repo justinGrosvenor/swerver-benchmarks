@@ -14,7 +14,7 @@ set -euo pipefail
 BENCH_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BENCH_ROOT"
 
-SCENARIOS="${1:-load-balancer api-gateway static-api}"
+SCENARIOS="${1:-load-balancer api-gateway static-api gateway-features}"
 K6_IMAGE="swerver-bench-k6"
 RESULTS_DIR="$BENCH_ROOT/results/scenarios_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"
@@ -154,8 +154,9 @@ for scenario in $SCENARIOS; do
         case "$scenario" in
             load-balancer)  slug="lb-${test}" ;;
             api-gateway)    slug="api-gateway-${test}" ;;
-            static-api)     slug="static-api-${test}" ;;
-            *)              slug="${scenario}-${test}" ;;
+            static-api)         slug="static-api-${test}" ;;
+            gateway-features)   slug="${test}" ;;
+            *)                  slug="${scenario}-${test}" ;;
         esac
         run_k6 "$SCENARIO_DIR" "$test" "$NETWORK" "$slug"
     done

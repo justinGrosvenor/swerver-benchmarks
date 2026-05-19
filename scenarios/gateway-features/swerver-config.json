@@ -1,0 +1,124 @@
+{
+  "server": {
+    "address": "0.0.0.0",
+    "port": 8080,
+    "workers": 2,
+    "max_connections": 2048
+  },
+  "timeouts": {
+    "idle_ms": 30000,
+    "header_ms": 5000,
+    "body_ms": 15000,
+    "write_ms": 15000
+  },
+  "upstreams": [
+    {
+      "name": "api-v1",
+      "servers": [
+        { "address": "api-v1", "port": 3000 }
+      ],
+      "health_check": {
+        "path": "/health",
+        "interval_ms": 5000
+      }
+    },
+    {
+      "name": "api-v2",
+      "servers": [
+        { "address": "api-v2", "port": 3000 }
+      ],
+      "health_check": {
+        "path": "/health",
+        "interval_ms": 5000
+      }
+    }
+  ],
+  "routes": [
+    {
+      "path_prefix": "/noauth/",
+      "upstream": "api-v1",
+      "rewrite_pattern": "/noauth",
+      "rewrite_replacement": ""
+    },
+    {
+      "path_prefix": "/authed/",
+      "upstream": "api-v1",
+      "rewrite_pattern": "/authed",
+      "rewrite_replacement": "",
+      "auth": {
+        "type": "api_key",
+        "keys": [
+          { "key": "bench-key-1", "name": "bench-consumer-1" },
+          { "key": "bench-key-2", "name": "bench-consumer-2" },
+          { "key": "bench-key-3", "name": "bench-consumer-3" }
+        ]
+      }
+    },
+    {
+      "path_prefix": "/jwt/",
+      "upstream": "api-v1",
+      "rewrite_pattern": "/jwt",
+      "rewrite_replacement": "",
+      "auth": {
+        "type": "jwt",
+        "secret": "bench-jwt-secret-key-for-testing-only",
+        "algorithm": "HS256",
+        "claims_to_headers": [
+          { "claim": "sub", "header": "X-User-ID" }
+        ]
+      }
+    },
+    {
+      "path_prefix": "/limited/",
+      "upstream": "api-v1",
+      "rewrite_pattern": "/limited",
+      "rewrite_replacement": "",
+      "auth": {
+        "type": "api_key",
+        "keys": [
+          { "key": "limited-key-1", "name": "limited-consumer-1" },
+          { "key": "limited-key-2", "name": "limited-consumer-2" }
+        ]
+      },
+      "rate_limit": {
+        "requests_per_second": 50,
+        "burst_size": 10,
+        "key": "consumer"
+      }
+    },
+    {
+      "path_prefix": "/cached/",
+      "upstream": "api-v1",
+      "rewrite_pattern": "/cached",
+      "rewrite_replacement": "",
+      "cache": {
+        "ttl_s": 10,
+        "max_entries": 1000
+      }
+    },
+    {
+      "path_prefix": "/canary/",
+      "upstream": "api-v1",
+      "rewrite_pattern": "/canary",
+      "rewrite_replacement": "",
+      "traffic_split": [
+        { "upstream": "api-v1", "weight": 80 },
+        { "upstream": "api-v2", "weight": 20 }
+      ]
+    },
+    {
+      "path_prefix": "/validated/",
+      "upstream": "api-v1",
+      "rewrite_pattern": "/validated",
+      "rewrite_replacement": "",
+      "body_schema": {
+        "type": "object",
+        "required": ["name", "email"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "email": { "type": "string", "minLength": 5, "maxLength": 200 }
+        }
+      }
+    }
+  ]
+}
