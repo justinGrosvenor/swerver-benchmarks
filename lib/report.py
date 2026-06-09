@@ -181,7 +181,7 @@ def report_scenario(suite_dir, title):
         data = parse_k6_json(f)
         if not data:
             continue
-        name = data.get("scenario", f.stem)
+        name = f.stem
         m = data.get("metrics", {})
 
         # Handle nested metrics (auth-overhead has noauth/apikey/jwt sub-objects)
