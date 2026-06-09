@@ -60,11 +60,14 @@ COPY --from=builder /build/swerver/zig-out/bin/swerver /usr/local/bin/swerver
 COPY --from=builder /build/git-ref.txt /app/git-ref.txt
 
 WORKDIR /app
+
+# Generate static test files for H2 file-serving benchmarks
+RUN mkdir -p /app/static && \
+    dd if=/dev/urandom of=/app/static/small.txt bs=1024 count=1 2>/dev/null && \
+    dd if=/dev/urandom of=/app/static/medium.css bs=1024 count=32 2>/dev/null && \
+    dd if=/dev/urandom of=/app/static/large.js bs=1024 count=128 2>/dev/null && \
+    dd if=/dev/urandom of=/app/static/image.bin bs=1024 count=512 2>/dev/null
+
 EXPOSE 8080
 
-# Benchmark endpoints available:
-# GET /health - minimal health check (empty 200)
-# GET /echo   - returns {"status":"ok"}
-# POST /echo  - echoes request body
-# GET /blob   - returns 8KB response
 CMD ["swerver"]

@@ -1,7 +1,8 @@
 {
   "server": {
     "port": 8443,
-    "max_connections": 2048
+    "max_connections": 2048,
+    "static_root": "/app/static"
   },
   "tls": {
     "cert_path": "/app/certs/server.crt",

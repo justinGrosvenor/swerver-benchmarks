@@ -82,6 +82,34 @@ def generate_report(results):
             ('medium_rps', 'Medium RPS (8KB)', 0),
             ('large_rps', 'Large RPS (64KB)', 0),
             ('xlarge_rps', 'XLarge RPS (256KB)', 0),
+            # H2 POST body per-size metrics
+            ('small_rps', 'Small POST RPS (512B)', 0),
+            ('small_p95_ms', 'Small POST p95 (ms)', 2),
+            ('medium_rps', 'Medium POST RPS (8KB)', 0),
+            ('medium_p95_ms', 'Medium POST p95 (ms)', 2),
+            ('large_rps', 'Large POST RPS (32KB)', 0),
+            ('large_p95_ms', 'Large POST p95 (ms)', 2),
+            ('xlarge_rps', 'XLarge POST RPS (128KB)', 0),
+            ('xlarge_p95_ms', 'XLarge POST p95 (ms)', 2),
+            # H2 multiplexing metrics
+            ('batch10_avg_ms', 'Batch-10 Avg (ms)', 2),
+            ('batch10_p95_ms', 'Batch-10 p95 (ms)', 2),
+            ('batch50_avg_ms', 'Batch-50 Avg (ms)', 2),
+            ('batch50_p95_ms', 'Batch-50 p95 (ms)', 2),
+            # H2 header stress metrics
+            ('few_headers_p95_ms', 'Few Headers p95 (ms)', 2),
+            ('many_headers_p95_ms', 'Many Headers p95 (ms)', 2),
+            ('large_header_p95_ms', 'Large Header p95 (ms)', 2),
+            # H2 mixed workload metrics
+            ('get_p95_ms', 'GET p95 (ms)', 2),
+            ('post_p95_ms', 'POST p95 (ms)', 2),
+            ('blob_p95_ms', 'Blob p95 (ms)', 2),
+            ('batch_p95_ms', 'Batch p95 (ms)', 2),
+            # TLS metrics
+            ('tls_handshaking_avg_ms', 'TLS Handshake Avg (ms)', 2),
+            ('tls_handshaking_p95_ms', 'TLS Handshake p95 (ms)', 2),
+            ('tls_handshaking_p99_ms', 'TLS Handshake p99 (ms)', 2),
+            ('connecting_avg_ms', 'Connect Avg (ms)', 2),
         ]
 
         server_names = sorted(servers.keys())

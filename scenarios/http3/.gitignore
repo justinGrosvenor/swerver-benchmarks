@@ -3,3 +3,4 @@ certs/server.crt
 certs/server.key
 results/*.txt
 results/*.json
+data/*.bin

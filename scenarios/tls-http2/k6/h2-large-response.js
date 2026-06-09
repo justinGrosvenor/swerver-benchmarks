@@ -1,5 +1,6 @@
-// TLS Throughput Benchmark
-// Measures max HTTPS requests/sec on minimal endpoint
+// HTTP/2 Large Response Benchmark
+// Fetches /blob (8KB) at high concurrency — exercises H2 DATA frame splitting,
+// flow control (WINDOW_UPDATE), and response body reassembly
 import http from 'k6/http';
 import { check } from 'k6';
 import { textSummary } from '/lib/summary.js';
@@ -13,32 +14,37 @@ export const options = {
     duration: __ENV.BENCH_DURATION || '30s',
     insecureSkipTLSVerify: true,
     thresholds: {
-        http_req_duration: ['p(95)<100', 'p(99)<200'],
+        http_req_duration: ['p(95)<200', 'p(99)<500'],
         http_req_failed: ['rate<0.01'],
-        http_reqs: ['rate>1000'],
+        http_reqs: ['rate>500'],
     },
 };
 
 export default function () {
-    const res = http.get(`${baseUrl}/health`, {
-        headers: { Accept: 'application/json' },
+    const res = http.get(`${baseUrl}/blob`, {
+        headers: { Accept: 'application/octet-stream' },
         timeout: '10s',
+        responseType: 'binary',
     });
     check(res, {
         'status 200': (r) => r.status === 200,
+        'is http2': (r) => r.proto === 'HTTP/2.0',
+        'body is 8KB': (r) => r.body && r.body.length >= 8000,
     });
 }
 
 export function handleSummary(data) {
     const metrics = data.metrics;
     const result = {
-        scenario: 'tls-throughput',
+        scenario: 'h2-large-response',
         timestamp: new Date().toISOString(),
         server: TARGET_HOST,
         config: {
             vus: options.vus,
             duration: options.duration,
             tls: true,
+            http2: true,
+            response_size: '8KB',
         },
         metrics: {
             requests_total: metrics.http_reqs ? metrics.http_reqs.values.count : 0,
@@ -47,7 +53,6 @@ export function handleSummary(data) {
             latency_p95_ms: metrics.http_req_duration ? metrics.http_req_duration.values['p(95)'] : 0,
             latency_p99_ms: metrics.http_req_duration ? metrics.http_req_duration.values['p(99)'] : 0,
             tls_handshaking_avg_ms: metrics.http_req_tls_handshaking ? metrics.http_req_tls_handshaking.values.avg : 0,
-            tls_handshaking_p95_ms: metrics.http_req_tls_handshaking ? metrics.http_req_tls_handshaking.values['p(95)'] : 0,
             error_rate: metrics.http_req_failed ? metrics.http_req_failed.values.rate : 0,
         },
     };

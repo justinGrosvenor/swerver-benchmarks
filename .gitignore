@@ -4,7 +4,12 @@
 # Results (generated)
 results/*.json
 results/run_*/
+results/[0-9]*/
+results/scenarios_*/
+results/gw_*/
 scenarios/*/results/*.json
+scenarios/*/results/*.txt
+scenarios/*/data/*.bin
 
 # Self-signed certs (generated)
 scenarios/*/certs/*.crt

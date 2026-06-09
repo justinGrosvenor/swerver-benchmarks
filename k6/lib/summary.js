@@ -25,3 +25,21 @@ export function textSummary(data, { indent = ' ' } = {}) {
 
     return lines.join('\n');
 }
+
+// Build handleSummary return object that writes results both to stdout
+// (via __RESULT_JSON_START__/__RESULT_JSON_END__ delimiters for reliable
+// capture by the runner) and to /results/<slug>.json (volume mount fallback).
+//
+// Usage in k6 scripts:
+//   export function handleSummary(data) {
+//     const result = { scenario: 'my-test', ... };
+//     return emitResult(data, 'my-test', result);
+//   }
+export function emitResult(data, slug, result, extraStdout) {
+    const text = (extraStdout || '') + textSummary(data);
+    const json = JSON.stringify(result, null, 2);
+    return {
+        stdout: text + '\n__RESULT_JSON_START__\n' + json + '\n__RESULT_JSON_END__\n',
+        [`/results/${slug}.json`]: json,
+    };
+}

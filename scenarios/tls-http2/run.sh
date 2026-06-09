@@ -1,14 +1,16 @@
 #!/bin/bash
 # Run TLS + HTTP/2 benchmark scenarios
 # Usage: ./run.sh [--servers "swerver nginx actix"] [--vus <n>] [--duration <time>]
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")"
 SCENARIO_DIR="$(pwd)"
+BENCH_ROOT="$(cd ../.. && pwd)"
+source "$BENCH_ROOT/lib/common.sh"
 
 SERVERS="${SERVERS:-swerver nginx actix apisix}"
-VUS="${K6_VUS:-100}"
-DURATION="${K6_DURATION:-30s}"
+VUS="${BENCH_VUS:-100}"
+DURATION="${BENCH_DURATION:-30s}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -19,128 +21,103 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ---- Generate certificates if needed ----
+# Generate certificates if needed
 bash certs/generate.sh
 
-# ---- Sync local swerver sources ----
-LOCAL_SWERVER_DIR="$(cd ../.. && pwd)/../swerver"
-LOCAL_SWERVER_CONTEXT="../../servers/swerver/swerver-src"
-if [[ -d "$LOCAL_SWERVER_DIR" ]]; then
-    echo "Syncing local swerver sources..."
-    rm -rf "$LOCAL_SWERVER_CONTEXT"
-    mkdir -p "$LOCAL_SWERVER_CONTEXT"
-    rsync -a --delete --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' \
-        "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
-fi
+sync_swerver
 
-K6_IMAGE="grafana/k6:latest"
-COMPOSE_PROJECT=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
-NETWORK="${COMPOSE_PROJECT}_scenario"
-TESTS=("tls-throughput" "tls-handshake" "h2-throughput")
+ensure_k6_image
+PROJECT="tls-http2"
+NETWORK="${PROJECT}_scenario"
+
+DEFAULT_TESTS=("tls-throughput" "tls-handshake" "h2-throughput" "h2-post-body" "h2-large-response" "h2-multiplexing" "h2-many-headers" "h2-concurrent-streams" "h2-mixed-workload" "h2-static-files" "h2-json-compressed")
+SOAK_TESTS=("h2-connection-longevity")
+
+if [[ -n "${TESTS_OVERRIDE:-}" ]]; then
+    IFS=',' read -ra TESTS <<< "$TESTS_OVERRIDE"
+elif [[ "${INCLUDE_SOAK:-0}" == "1" ]]; then
+    TESTS=("${DEFAULT_TESTS[@]}" "${SOAK_TESTS[@]}")
+else
+    TESTS=("${DEFAULT_TESTS[@]}")
+fi
 FAILED=0
 
-echo "========================================"
-echo "TLS + HTTP/2 Benchmark Suite"
-echo "========================================"
-echo "Servers:  $SERVERS"
-echo "Tests:    ${TESTS[*]}"
-echo "VUs:      $VUS"
-echo "Duration: $DURATION"
-echo "========================================"
+banner "TLS + HTTP/2 Benchmark Suite"
+echo "  Servers:  $SERVERS"
+echo "  Tests:    ${TESTS[*]}"
+echo "  VUs:      $VUS"
+echo "  Duration: $DURATION"
 echo ""
 
 mkdir -p results
 rm -f results/*.json
 
-# Cleanup on exit
 cleanup() {
     echo ""
     echo "Stopping services..."
-    docker-compose down --remove-orphans 2>/dev/null || true
+    dc "$SCENARIO_DIR" "$PROJECT" down --remove-orphans 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# ---- Build all servers ----
 echo "Building servers..."
-docker-compose build $SERVERS 2>&1 | tail -5
+dc "$SCENARIO_DIR" "$PROJECT" build $SERVERS 2>&1 | tail -5
 echo ""
 
-# ---- Run benchmarks per server ----
 for server in $SERVERS; do
-    echo "========================================"
-    echo "Testing: $server (TLS)"
-    echo "========================================"
+    banner "Testing: $server (TLS)"
 
-    # APISIX uses a different internal port (9443 instead of 8443)
-    internal_port=8443
-    if [[ "$server" == "apisix" ]]; then
-        internal_port=9443
+    local_port=8443
+    [[ "$server" == "apisix" ]] && local_port=9443
+
+    dc "$SCENARIO_DIR" "$PROJECT" stop 2>/dev/null || true
+    dc "$SCENARIO_DIR" "$PROJECT" up -d "$server" 2>/dev/null
+
+    if ! wait_healthy "$SCENARIO_DIR" "$PROJECT" "$server" "curl -sSfk https://localhost:${local_port}/health" 60; then
+        echo "  SKIP: $server failed to start"
+        dc "$SCENARIO_DIR" "$PROJECT" logs "$server" 2>&1 | tail -10 || true
+        FAILED=$((FAILED + 1))
+        continue
     fi
-
-    # Stop everything, start only this server
-    docker-compose stop 2>/dev/null || true
-    docker-compose up -d "$server" 2>/dev/null
-
-    # Wait for healthy
-    echo -n "  Waiting for $server..."
-    for i in $(seq 1 60); do
-        if docker-compose exec -T "$server" curl -sSfk "https://localhost:${internal_port}/health" >/dev/null 2>&1; then
-            echo " ready (${i}s)"
-            break
-        elif docker-compose exec -T "$server" wget -q --spider --no-check-certificate "https://localhost:${internal_port}/health" 2>/dev/null; then
-            echo " ready (${i}s)"
-            break
-        fi
-        echo -n "."
-        sleep 1
-        if [[ $i -eq 60 ]]; then
-            echo " TIMEOUT"
-            docker-compose logs "$server"
-            FAILED=$((FAILED + 1))
-            continue 2
-        fi
-    done
 
     for test in "${TESTS[@]}"; do
         echo ""
         echo "--- $server / $test ---"
 
-        # tls-handshake has its own VU/duration config (new conn per request is slower)
-        local_env="-e K6_VUS=$VUS -e K6_DURATION=$DURATION"
-        if [[ "$test" == "tls-handshake" ]]; then
-            local_env="-e K6_VUS=$VUS -e K6_DURATION=$DURATION"
-        fi
-
+        k6_log=$(mktemp)
+        set +e
         docker run --rm \
             --network "$NETWORK" \
-            -v "${SCENARIO_DIR}/results:/results" \
-            -v "${SCENARIO_DIR}/k6:/scenarios:ro" \
-            -v "${SCENARIO_DIR}/../../k6/lib:/lib:ro" \
-            $local_env \
-            -e TARGET_HOST="$server" \
-            -e TARGET_PORT="$internal_port" \
+            -v "$SCENARIO_DIR/k6:/scenarios:ro" \
+            -v "$BENCH_ROOT/k6/lib:/lib:ro" \
+            -e "BENCH_VUS=$VUS" \
+            -e "BENCH_DURATION=$DURATION" \
+            -e "TARGET_HOST=$server" \
+            -e "TARGET_PORT=$local_port" \
             "$K6_IMAGE" \
-            run "/scenarios/${test}.js" 2>&1 | grep -E "^(Summary| |running)" | tail -5
+            "/scenarios/${test}.js" > "$k6_log" 2>&1
+        set -e
+        grep -E "^(Summary| |running)" "$k6_log" | tail -8
 
-        if [[ -f "results/${server}_${test}.json" ]]; then
-            echo "  OK: results/${server}_${test}.json"
+        result_file="results/${server}_${test}.json"
+        if sed -n '/__RESULT_JSON_START__/,/__RESULT_JSON_END__/p' "$k6_log" \
+            | grep -v '__RESULT_JSON_' > "$result_file" 2>/dev/null \
+            && [[ -s "$result_file" ]]; then
+            echo "  OK: $result_file"
         else
-            echo "  FAIL: no result file"
+            rm -f "$result_file"
+            grep -i "level=error" "$k6_log" | tail -3 || true
+            echo "  FAIL: no result data"
             FAILED=$((FAILED + 1))
         fi
+        rm -f "$k6_log"
     done
 
     echo ""
-    docker-compose stop "$server" 2>/dev/null || true
+    dc "$SCENARIO_DIR" "$PROJECT" stop "$server" 2>/dev/null || true
 done
 
-# ---- Summary ----
 echo ""
-echo "========================================"
+banner "Summary"
 RESULT_COUNT=$(ls results/*.json 2>/dev/null | wc -l | tr -d ' ')
-echo "Results: $RESULT_COUNT files in results/"
-
-if [[ $FAILED -gt 0 ]]; then
-    echo "Failures: $FAILED"
-fi
-echo "========================================"
+echo "  Results: $RESULT_COUNT files in results/"
+[[ $FAILED -gt 0 ]] && echo "  Failures: $FAILED"

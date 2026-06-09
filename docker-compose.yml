@@ -23,6 +23,20 @@ services:
         SWERVER_REF: "${SWERVER_REF:-main}"
         SWERVER_REPO: "${SWERVER_REPO:-https://github.com/justinGrosvenor/swerver.git}"
         SWERVER_LOCAL_PATH: "1"
+    # Docker's default seccomp profile filters the io_uring_setup /
+    # io_uring_enter / io_uring_register syscalls, which forces swerver's
+    # backend picker to fall through to epoll. That defeats the whole
+    # point of the benchmark — we want to measure the native io_uring
+    # backend that will run in production. Unconfined seccomp here means
+    # no syscall filter, so io_uring_* can land.
+    security_opt:
+      - seccomp:unconfined
+    # Allow forcing a specific backend for A/B comparison. When unset,
+    # swerver's picker auto-selects the best available (native > poll > epoll).
+    # Accepts: native, poll, epoll
+    environment:
+      - SWERVER_BACKEND=${SWERVER_BACKEND:-}
+      - SWERVER_INLINE_ACCEPT=${SWERVER_INLINE_ACCEPT:-}
     ports:
       - "8080:8080"
     healthcheck:

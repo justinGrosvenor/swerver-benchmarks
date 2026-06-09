@@ -7,6 +7,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 SCENARIO_DIR="$(pwd)"
+BENCH_ROOT="$(cd ../.. && pwd)"
+source "$BENCH_ROOT/lib/common.sh"
 
 VUS="${K6_VUS:-100}"
 DURATION="${K6_DURATION:-30s}"
@@ -21,105 +23,56 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Sync local swerver sources (opt-in)
-LOCAL_SWERVER_CONTEXT="../../servers/swerver/swerver-src"
-if [[ "${USE_LOCAL_SWERVER:-0}" == "1" ]]; then
-    LOCAL_SWERVER_DIR="${LOCAL_SWERVER_DIR:-$(cd ../../.. && pwd)/swerver}"
-    if [[ ! -d "$LOCAL_SWERVER_DIR" ]]; then
-        echo "USE_LOCAL_SWERVER=1 but LOCAL_SWERVER_DIR ($LOCAL_SWERVER_DIR) not found" >&2
-        exit 1
-    fi
-    echo "Syncing local swerver sources from $LOCAL_SWERVER_DIR..."
-    rm -rf "$LOCAL_SWERVER_CONTEXT"
-    mkdir -p "$LOCAL_SWERVER_CONTEXT"
-    rsync -a --delete --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' \
-        "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
-else
-    rm -rf "$LOCAL_SWERVER_CONTEXT"
-fi
+sync_swerver
 
-K6_IMAGE="grafana/k6:latest"
-COMPOSE_PROJECT=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
-NETWORK="${COMPOSE_PROJECT}_default"
+ensure_k6_image
+PROJECT="gateway-features"
+NETWORK="${PROJECT}_default"
 
-echo "========================================"
-echo "Scenario: Gateway Features"
-echo "VUs:      $VUS"
-echo "Duration: $DURATION"
-if [[ -n "$SINGLE_TEST" ]]; then
-    echo "Test:     $SINGLE_TEST"
-fi
-echo "========================================"
+banner "Scenario: Gateway Features"
+echo "  VUs:      $VUS"
+echo "  Duration: $DURATION"
+[[ -n "$SINGLE_TEST" ]] && echo "  Test:     $SINGLE_TEST"
 echo ""
 
 mkdir -p results
 
-# Build and start
 echo "Building services..."
-if ! docker compose build; then
-    echo "ERROR: docker compose build failed" >&2
-    exit 1
-fi
+dc "$SCENARIO_DIR" "$PROJECT" build 2>&1 | tail -3
 echo "Starting services..."
-if ! docker compose up -d; then
-    echo "ERROR: docker compose up failed" >&2
-    exit 1
-fi
+dc "$SCENARIO_DIR" "$PROJECT" up -d
 
-# Cleanup on exit
 cleanup() {
     echo ""
     echo "Stopping services..."
-    docker compose down 2>/dev/null || true
+    dc "$SCENARIO_DIR" "$PROJECT" down 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# Wait for swerver health
-echo -n "Waiting for swerver..."
-for i in $(seq 1 30); do
-    if curl -sSf "http://localhost:8080/health" >/dev/null 2>&1; then
-        echo " ready (${i}s)"
-        break
-    fi
-    echo -n "."
-    sleep 1
-    if [[ $i -eq 30 ]]; then
-        echo " TIMEOUT"
-        docker compose logs swerver
-        exit 1
-    fi
-done
+wait_healthy "$SCENARIO_DIR" "$PROJECT" "swerver" "curl -sSf http://localhost:8080/health" 30
 
-# Quick smoke test
+# Smoke test
 echo ""
 echo "Smoke test..."
 echo -n "  /noauth/users: "
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/noauth/users)
-echo "$STATUS"
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/noauth/users || echo "FAIL"
 echo -n "  /authed/users (with key): "
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-API-Key: bench-key-1' http://localhost:8080/authed/users)
-echo "$STATUS"
+curl -s -o /dev/null -w '%{http_code}\n' -H 'X-API-Key: bench-key-1' http://localhost:8080/authed/users || echo "FAIL"
 echo -n "  /authed/users (no key): "
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/authed/users)
-echo "$STATUS"
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/authed/users || echo "FAIL"
 echo -n "  /cached/catalog: "
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/cached/catalog)
-echo "$STATUS"
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/cached/catalog || echo "FAIL"
 echo -n "  /canary/version: "
-curl -s http://localhost:8080/canary/version
+curl -s http://localhost:8080/canary/version || echo "FAIL"
 echo ""
 echo -n "  /limited/users (with key): "
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-API-Key: limited-key-1' http://localhost:8080/limited/users)
-echo "$STATUS"
+curl -s -o /dev/null -w '%{http_code}\n' -H 'X-API-Key: limited-key-1' http://localhost:8080/limited/users || echo "FAIL"
 echo -n "  /validated/validate (valid): "
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"name":"test","email":"a@b.com"}' http://localhost:8080/validated/validate)
-echo "$STATUS"
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{"name":"test","email":"a@b.com"}' http://localhost:8080/validated/validate || echo "FAIL"
 echo -n "  /validated/validate (invalid): "
-STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"name":""}' http://localhost:8080/validated/validate)
-echo "$STATUS"
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{"name":""}' http://localhost:8080/validated/validate || echo "FAIL"
 echo ""
 
-# Test list
 if [[ -n "$SINGLE_TEST" ]]; then
     TESTS=("$SINGLE_TEST")
 else
@@ -137,13 +90,13 @@ for TEST in "${TESTS[@]}"; do
 
     if docker run --rm \
         --network "$NETWORK" \
-        -v "${SCENARIO_DIR}/results:/results" \
-        -v "${SCENARIO_DIR}/k6:/scenarios:ro" \
-        -v "${SCENARIO_DIR}/../../k6/lib:/lib:ro" \
-        -e TARGET_HOST="swerver" \
+        -v "$SCENARIO_DIR/results:/results" \
+        -v "$SCENARIO_DIR/k6:/scenarios:ro" \
+        -v "$BENCH_ROOT/k6/lib:/lib:ro" \
+        -e TARGET_HOST=swerver \
         -e TARGET_PORT=8080 \
         "$K6_IMAGE" \
-        run "/scenarios/${TEST}.js"; then
+        "/scenarios/${TEST}.js"; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
@@ -152,9 +105,7 @@ for TEST in "${TESTS[@]}"; do
     echo ""
 done
 
-echo "========================================"
-echo "Results: ${PASS} passed, ${FAIL} failed"
-echo "========================================"
+banner "Results: ${PASS} passed, ${FAIL} failed"
 echo ""
 echo "Result files:"
 ls -la results/*.json 2>/dev/null || echo "  (no result files written)"

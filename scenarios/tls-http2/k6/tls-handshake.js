@@ -9,8 +9,8 @@ const TARGET_PORT = __ENV.TARGET_PORT || '8443';
 const baseUrl = `https://${TARGET_HOST}:${TARGET_PORT}`;
 
 export const options = {
-    vus: parseInt(__ENV.K6_VUS) || 100,
-    duration: __ENV.K6_DURATION || '30s',
+    vus: parseInt(__ENV.BENCH_VUS) || 100,
+    duration: __ENV.BENCH_DURATION || '30s',
     insecureSkipTLSVerify: true,
     noConnectionReuse: true,
     thresholds: {
@@ -58,7 +58,6 @@ export function handleSummary(data) {
         },
     };
     return {
-        [`/results/${TARGET_HOST}_tls-handshake.json`]: JSON.stringify(result, null, 2),
-        stdout: textSummary(data),
+        stdout: textSummary(data) + '\n__RESULT_JSON_START__\n' + JSON.stringify(result, null, 2) + '\n__RESULT_JSON_END__\n',
     };
 }

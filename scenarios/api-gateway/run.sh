@@ -2,12 +2,13 @@
 # Run the API Gateway scenario
 # Usage: ./run.sh [--vus <n>] [--duration <time>]
 #
-# By default the swerver Dockerfile clones SWERVER_REF (default: main).
-# Set USE_LOCAL_SWERVER=1 to rsync the local working copy at ../../../swerver instead.
+# Set USE_LOCAL_SWERVER=1 to rsync the local working copy instead of cloning.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 SCENARIO_DIR="$(pwd)"
+BENCH_ROOT="$(cd ../.. && pwd)"
+source "$BENCH_ROOT/lib/common.sh"
 
 VUS="${K6_VUS:-100}"
 DURATION="${K6_DURATION:-30s}"
@@ -20,73 +21,32 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Sync local swerver sources (opt-in)
-LOCAL_SWERVER_CONTEXT="../../servers/swerver/swerver-src"
-if [[ "${USE_LOCAL_SWERVER:-0}" == "1" ]]; then
-    LOCAL_SWERVER_DIR="${LOCAL_SWERVER_DIR:-$(cd ../../.. && pwd)/swerver}"
-    if [[ ! -d "$LOCAL_SWERVER_DIR" ]]; then
-        echo "USE_LOCAL_SWERVER=1 but LOCAL_SWERVER_DIR ($LOCAL_SWERVER_DIR) not found" >&2
-        exit 1
-    fi
-    echo "Syncing local swerver sources from $LOCAL_SWERVER_DIR..."
-    rm -rf "$LOCAL_SWERVER_CONTEXT"
-    mkdir -p "$LOCAL_SWERVER_CONTEXT"
-    rsync -a --delete --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' \
-        "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
-else
-    rm -rf "$LOCAL_SWERVER_CONTEXT"
-fi
+sync_swerver
 
-K6_IMAGE="grafana/k6:latest"
-COMPOSE_PROJECT=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
-# This scenario's compose file does not declare a custom network, so docker-compose
-# creates "<project>_default".
-NETWORK="${COMPOSE_PROJECT}_default"
+ensure_k6_image
+PROJECT="api-gateway"
+NETWORK="${PROJECT}_default"
 
-echo "========================================"
-echo "Scenario: API Gateway"
-echo "VUs:      $VUS"
-echo "Duration: $DURATION"
-echo "========================================"
+banner "Scenario: API Gateway"
+echo "  VUs:      $VUS"
+echo "  Duration: $DURATION"
 echo ""
 
 mkdir -p results
 
-# Build and start
 echo "Building services..."
-if ! docker-compose build; then
-    echo "ERROR: docker-compose build failed" >&2
-    exit 1
-fi
+dc "$SCENARIO_DIR" "$PROJECT" build 2>&1 | tail -3
 echo "Starting services..."
-if ! docker-compose up -d; then
-    echo "ERROR: docker-compose up failed" >&2
-    exit 1
-fi
+dc "$SCENARIO_DIR" "$PROJECT" up -d
 
-# Cleanup on exit
 cleanup() {
     echo ""
     echo "Stopping services..."
-    docker-compose down 2>/dev/null || true
+    dc "$SCENARIO_DIR" "$PROJECT" down 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# Wait for swerver health
-echo -n "Waiting for swerver..."
-for i in $(seq 1 30); do
-    if curl -sSf "http://localhost:8080/health" >/dev/null 2>&1; then
-        echo " ready (${i}s)"
-        break
-    fi
-    echo -n "."
-    sleep 1
-    if [[ $i -eq 30 ]]; then
-        echo " TIMEOUT"
-        docker-compose logs swerver
-        exit 1
-    fi
-done
+wait_healthy "$SCENARIO_DIR" "$PROJECT" "swerver" "curl -sSf http://localhost:8080/health" 30
 
 TESTS=("routing" "throughput" "mixed")
 
@@ -97,15 +57,15 @@ for TEST in "${TESTS[@]}"; do
 
     docker run --rm \
         --network "$NETWORK" \
-        -v "${SCENARIO_DIR}/results:/results" \
-        -v "${SCENARIO_DIR}/k6:/scenarios:ro" \
-        -v "${SCENARIO_DIR}/../../k6/lib:/lib:ro" \
-        -e K6_VUS="$VUS" \
-        -e K6_DURATION="$DURATION" \
-        -e TARGET_HOST="swerver" \
+        -v "$SCENARIO_DIR/results:/results" \
+        -v "$SCENARIO_DIR/k6:/scenarios:ro" \
+        -v "$BENCH_ROOT/k6/lib:/lib:ro" \
+        -e "K6_VUS=$VUS" \
+        -e "K6_DURATION=$DURATION" \
+        -e TARGET_HOST=swerver \
         -e TARGET_PORT=8080 \
         "$K6_IMAGE" \
-        run "/scenarios/${TEST}.js" || true
+        "/scenarios/${TEST}.js" || true
 done
 
 echo ""

@@ -1,28 +1,25 @@
 #!/bin/bash
-# Run all benchmark scenarios against all servers
+# Run all H1 benchmark scenarios against all servers
 # Usage: ./run-all.sh [--servers "swerver nginx"] [--scenarios "throughput latency"]
 #
 # Each server is tested in isolation (all other containers stopped).
 # k6 runs via `docker run` with explicit volume mounts for reliable result collection.
 #
-# To benchmark a local working copy of swerver instead of the git ref, set
-# USE_LOCAL_SWERVER=1 and place the repo at ../swerver relative to this one.
-# By default the Dockerfile clones SWERVER_REF (default: main) so numbers are
-# reproducible across machines.
+# Set USE_LOCAL_SWERVER=1 to rsync local working copy instead of git clone.
 
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+BENCH_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$BENCH_ROOT/lib/common.sh"
 
 # Defaults
 SERVERS="${SERVERS:-swerver nginx httpzig actix apisix}"
-# Soak excluded by default (5 min) — opt-in: SCENARIOS="throughput latency connections concurrent mixed spike payload keepalive rapid-fire error-handling soak"
+# Soak excluded by default (5 min)
 SCENARIOS="${SCENARIOS:-throughput latency connections concurrent mixed spike payload keepalive rapid-fire error-handling}"
 VUS="${K6_VUS:-100}"
 DURATION="${K6_DURATION:-30s}"
 RETRIES=1
 
-# Parse args
 while [[ $# -gt 0 ]]; do
     case $1 in
         --servers)   SERVERS="$2";   shift 2 ;;
@@ -33,108 +30,56 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-K6_IMAGE="swerver-bench-k6"
-RESULTS_DIR="results/run_$(date +%Y%m%d_%H%M%S)"
+ensure_k6_image
+RESULTS_DIR="$BENCH_ROOT/results/run_$(date +%Y%m%d_%H%M%S)"
 FAILED=0
-# docker-compose network name: <project>_<network>
-COMPOSE_PROJECT=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
-NETWORK="${COMPOSE_PROJECT}_benchmark"
+PROJECT=$(basename "$BENCH_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
+NETWORK="${PROJECT}_benchmark"
 
-echo "========================================"
-echo "Benchmark Suite"
-echo "========================================"
-echo "Servers:   $SERVERS"
-echo "Scenarios: $SCENARIOS"
-echo "VUs:       $VUS"
-echo "Duration:  $DURATION"
-echo "Results:   $RESULTS_DIR"
-echo "========================================"
+banner "Benchmark Suite"
+echo "  Servers:   $SERVERS"
+echo "  Scenarios: $SCENARIOS"
+echo "  VUs:       $VUS"
+echo "  Duration:  $DURATION"
+echo "  Results:   $RESULTS_DIR"
 echo ""
 
-# ---- Sync local swerver sources (opt-in) ----
-# Default: build the Dockerfile's SWERVER_REF (pinned git commit) so results
-# are reproducible across machines. Set USE_LOCAL_SWERVER=1 to rsync the local
-# working copy into the build context instead.
-LOCAL_SWERVER_CONTEXT="./servers/swerver/swerver-src"
-if [[ "${USE_LOCAL_SWERVER:-0}" == "1" ]]; then
-    LOCAL_SWERVER_DIR="${LOCAL_SWERVER_DIR:-$(cd .. && pwd)/swerver}"
-    if [[ ! -d "$LOCAL_SWERVER_DIR" ]]; then
-        echo "USE_LOCAL_SWERVER=1 but LOCAL_SWERVER_DIR ($LOCAL_SWERVER_DIR) not found" >&2
-        exit 1
-    fi
-    echo "Syncing local swerver sources from $LOCAL_SWERVER_DIR..."
-    rm -rf "$LOCAL_SWERVER_CONTEXT"
-    mkdir -p "$LOCAL_SWERVER_CONTEXT"
-    rsync -a --delete \
-        --exclude='.git' --exclude='.zig-cache' --exclude='zig-out' \
-        "$LOCAL_SWERVER_DIR"/ "$LOCAL_SWERVER_CONTEXT"/
-else
-    # Ensure no stale local checkout from a previous run contaminates the build.
-    rm -rf "$LOCAL_SWERVER_CONTEXT"
-fi
+sync_swerver
 
-# ---- Create results directory ----
 mkdir -p "$RESULTS_DIR"
-# Clean leftover result files (safe — the directory exists from the mkdir above)
-find results -maxdepth 1 -name "*.json" -delete 2>/dev/null || true
+find "$BENCH_ROOT/results" -maxdepth 1 -name "*.json" -delete 2>/dev/null || true
 
-# ---- Build everything ----
-# Don't pipe to tail — it hides build failures behind a successful pipe.
-# With pipefail set this would still fail, but dropping the pipe gives
-# readable output too.
 echo "Building servers..."
-if ! docker-compose build $SERVERS; then
-    echo "ERROR: docker-compose build failed" >&2
-    exit 1
-fi
-echo ""
-echo "Building k6..."
-if ! docker build -t "$K6_IMAGE" ./k6; then
-    echo "ERROR: k6 image build failed" >&2
-    exit 1
-fi
+(cd "$BENCH_ROOT" && docker-compose build $SERVERS) || { echo "ERROR: build failed" >&2; exit 1; }
 echo ""
 
-# ---- Ensure clean state ----
 cleanup() {
     echo ""
     echo "Cleaning up..."
-    docker-compose down --remove-orphans 2>/dev/null || true
+    (cd "$BENCH_ROOT" && docker-compose down --remove-orphans 2>/dev/null || true)
 }
 trap cleanup EXIT
 
-# Stop all servers
-docker-compose down --remove-orphans 2>/dev/null || true
+(cd "$BENCH_ROOT" && docker-compose down --remove-orphans 2>/dev/null || true)
 
-# ---- Run a single benchmark ----
-# Usage: run_benchmark <server> <scenario>
-# Returns 0 if result file was saved, 1 otherwise
 run_benchmark() {
-    local server="$1"
-    local scenario="$2"
-    local result_file="results/${server}_${scenario}.json"
+    local server="$1" scenario="$2"
+    local result_file="$BENCH_ROOT/results/${server}_${scenario}.json"
     local dest_file="$RESULTS_DIR/${server}_${scenario}.json"
 
     rm -f "$result_file"
 
-    # Scenarios with custom executors/stages must not receive K6_VUS/K6_DURATION
-    # (k6 auto-overrides options when these env vars are set)
     local env_flags="-e K6_VUS=$VUS -e K6_DURATION=$DURATION"
     case "$scenario" in
         payload|keepalive|spike|concurrent|soak) env_flags="" ;;
     esac
 
-    # Run k6 directly via docker run — reliable volume mount
-    # k6 writes to /results/{server}_{scenario}.json (server-namespaced to prevent overwrites)
-    # The grep|tail pipe is intentionally fault-tolerant: under set -euo pipefail
-    # we don't want a "no grep matches" or k6 threshold failure to abort the
-    # surrounding loop. Success is judged by whether the JSON result file exists.
     set +e
     docker run --rm \
         --network "$NETWORK" \
-        -v "$(pwd)/results:/results" \
-        -v "$(pwd)/k6/scenarios:/scenarios:ro" \
-        -v "$(pwd)/k6/lib:/lib:ro" \
+        -v "$BENCH_ROOT/results:/results" \
+        -v "$BENCH_ROOT/k6/scenarios:/scenarios:ro" \
+        -v "$BENCH_ROOT/k6/lib:/lib:ro" \
         $env_flags \
         -e TARGET_HOST="$server" \
         -e TARGET_PORT=8080 \
@@ -142,7 +87,6 @@ run_benchmark() {
         "/scenarios/${scenario}.js" 2>&1 | grep -E "^(Summary| |running \(0m(29|30))" | tail -5
     set -e
 
-    # Verify result
     if [[ ! -f "$result_file" ]]; then
         echo "  FAIL: no result file written"
         return 1
@@ -153,16 +97,14 @@ run_benchmark() {
     return 0
 }
 
-# ---- Wait for server to be healthy ----
 wait_for_server() {
     local server="$1"
-    local max_wait=30
     echo -n "  Waiting for $server..."
-    for i in $(seq 1 $max_wait); do
-        if docker-compose exec -T "$server" curl -sSf "http://localhost:8080/health" >/dev/null 2>&1; then
+    for i in $(seq 1 30); do
+        if (cd "$BENCH_ROOT" && docker-compose exec -T "$server" curl -sSf "http://localhost:8080/health" >/dev/null 2>&1); then
             echo " ready (${i}s)"
             return 0
-        elif docker-compose exec -T "$server" wget -q --spider "http://localhost:8080/health" 2>/dev/null; then
+        elif (cd "$BENCH_ROOT" && docker-compose exec -T "$server" wget -q --spider "http://localhost:8080/health" 2>/dev/null); then
             echo " ready (${i}s)"
             return 0
         fi
@@ -173,23 +115,19 @@ wait_for_server() {
     return 1
 }
 
-# ---- Main loop ----
 for server in $SERVERS; do
-    echo "========================================"
-    echo "Testing: $server"
-    echo "========================================"
+    banner "Testing: $server"
 
-    # Stop everything, start only this server
-    docker-compose stop 2>/dev/null || true
-    if ! docker-compose up -d "$server"; then
-        echo "  SKIP: $server failed to start (docker-compose up failed)"
+    (cd "$BENCH_ROOT" && docker-compose stop 2>/dev/null || true)
+    if ! (cd "$BENCH_ROOT" && docker-compose up -d "$server"); then
+        echo "  SKIP: $server failed to start"
         FAILED=$((FAILED + 1))
         continue
     fi
 
     if ! wait_for_server "$server"; then
         echo "  SKIP: $server failed to start"
-        docker-compose logs "$server" 2>&1 | tail -20
+        (cd "$BENCH_ROOT" && docker-compose logs "$server" 2>&1 | tail -20)
         FAILED=$((FAILED + 1))
         continue
     fi
@@ -199,7 +137,6 @@ for server in $SERVERS; do
         echo "--- $server / $scenario ---"
 
         if ! run_benchmark "$server" "$scenario"; then
-            # Retry once
             echo "  Retrying..."
             sleep 2
             if ! run_benchmark "$server" "$scenario"; then
@@ -210,25 +147,22 @@ for server in $SERVERS; do
     done
 
     echo ""
-    docker-compose stop "$server" 2>/dev/null || true
+    (cd "$BENCH_ROOT" && docker-compose stop "$server" 2>/dev/null || true)
 done
 
-# ---- Generate report ----
 echo ""
-echo "========================================"
+banner "Summary"
 RESULT_COUNT=$(ls "$RESULTS_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
-echo "Results: $RESULT_COUNT files saved to $RESULTS_DIR/"
-
-if [[ $FAILED -gt 0 ]]; then
-    echo "Failures: $FAILED"
-fi
+echo "  Results: $RESULT_COUNT files in $RESULTS_DIR/"
+[[ $FAILED -gt 0 ]] && echo "  Failures: $FAILED"
 
 if command -v python3 &>/dev/null && [[ $RESULT_COUNT -gt 0 ]]; then
     echo ""
     echo "Generating comparison report..."
-    python3 ./scripts/compare-results.py "$RESULTS_DIR"/*.json > "$RESULTS_DIR/comparison.md" 2>&1
-    echo "Report: $RESULTS_DIR/comparison.md"
-    echo ""
-    cat "$RESULTS_DIR/comparison.md"
+    python3 "$BENCH_ROOT/scripts/compare-results.py" "$RESULTS_DIR"/*.json > "$RESULTS_DIR/comparison.md" 2>&1 || true
+    if [[ -s "$RESULTS_DIR/comparison.md" ]]; then
+        echo "Report: $RESULTS_DIR/comparison.md"
+        echo ""
+        cat "$RESULTS_DIR/comparison.md"
+    fi
 fi
-echo "========================================"

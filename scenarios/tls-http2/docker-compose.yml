@@ -19,8 +19,12 @@ services:
         SWERVER_REF: "${SWERVER_REF:-main}"
         SWERVER_REPO: "${SWERVER_REPO:-https://github.com/justinGrosvenor/swerver.git}"
         SWERVER_LOCAL_PATH: "1"
-        ZIG_BUILD_FLAGS: "-Denable-tls=true -Denable-http2=true"
+        ZIG_BUILD_FLAGS: "-Denable-tls=true -Denable-http2=true -Denable-compression=true"
     command: ["swerver", "--config", "/app/config.json"]
+    environment:
+      - SWERVER_BACKEND=${SWERVER_BACKEND:-}
+    security_opt:
+      - seccomp=unconfined
     ports:
       - "8443:8443"
     volumes:
