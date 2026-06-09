@@ -363,7 +363,7 @@ run_scenario() {
         echo "--- $name / $test ---"
 
         local before_count
-        before_count=$(ls "$suite_dir"/*.json 2>/dev/null | wc -l | tr -d ' ')
+        before_count=$(find "$suite_dir" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
 
         # Special: load-balancer failover needs pause/unpause of app-3
         if [[ "$name" == "load-balancer" && "$test" == "failover" ]]; then
@@ -395,7 +395,7 @@ run_scenario() {
         fi
 
         local after_count
-        after_count=$(ls "$suite_dir"/*.json 2>/dev/null | wc -l | tr -d ' ')
+        after_count=$(find "$suite_dir" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
         if [[ "$after_count" -gt "$before_count" ]]; then
             echo "  OK"
             TOTAL_PASS=$((TOTAL_PASS + 1))
