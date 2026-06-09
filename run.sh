@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
         --servers|-s)  SERVERS="$2";  shift 2 ;;
         h1|h2|h3|proxy|gateway|all)
             case $1 in
-                all)     SUITES+=(h1 h2 h3 proxy gateway) ;;
+                all)     SUITES+=(h1 h2 h3 load-balancer api-gateway gateway-features) ;;
                 proxy)   SUITES+=(load-balancer) ;;
                 gateway) SUITES+=(api-gateway gateway-features) ;;
                 *)       SUITES+=("$1") ;;
