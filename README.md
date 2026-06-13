@@ -2,6 +2,8 @@
 
 Reproducible HTTP server benchmarking suite for comparing [swerver](https://github.com/justinGrosvenor/swerver) against production-grade servers.
 
+🌐 [swerver.net](https://swerver.net) · 📖 [docs.swerver.net](https://docs.swerver.net) · 💸 [x402.swerver.net](https://x402.swerver.net)
+
 ## Quick Start
 
 ```bash
