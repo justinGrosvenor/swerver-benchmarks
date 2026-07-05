@@ -57,6 +57,31 @@ fn handleEchoPost(ctx: *router.HandlerContext) response_mod.Response {
     };
 }
 
+// A representative (and compressible) JSON payload for the /json profile
+// (h2-json-compressed exercises gzip over h2 + valid-JSON checks).
+const JSON_BODY =
+    \\{"status":"ok","count":10,"items":[
+    \\{"id":1,"name":"item-one","category":"widgets","price":1299,"quantity":42,"active":true},
+    \\{"id":2,"name":"item-two","category":"widgets","price":1499,"quantity":17,"active":true},
+    \\{"id":3,"name":"item-three","category":"gadgets","price":2599,"quantity":8,"active":false},
+    \\{"id":4,"name":"item-four","category":"gadgets","price":999,"quantity":63,"active":true},
+    \\{"id":5,"name":"item-five","category":"widgets","price":1799,"quantity":21,"active":true},
+    \\{"id":6,"name":"item-six","category":"gizmos","price":3499,"quantity":5,"active":false},
+    \\{"id":7,"name":"item-seven","category":"gadgets","price":1199,"quantity":34,"active":true},
+    \\{"id":8,"name":"item-eight","category":"widgets","price":1399,"quantity":29,"active":true},
+    \\{"id":9,"name":"item-nine","category":"gizmos","price":2799,"quantity":12,"active":false},
+    \\{"id":10,"name":"item-ten","category":"gadgets","price":1599,"quantity":48,"active":true}
+    \\]}
+;
+
+fn handleJson(_: *router.HandlerContext) response_mod.Response {
+    return .{
+        .status = 200,
+        .headers = &[_]response_mod.Header{.{ .name = "Content-Type", .value = "application/json" }},
+        .body = .{ .bytes = JSON_BODY },
+    };
+}
+
 fn handleBlob(_: *router.HandlerContext) response_mod.Response {
     return .{
         .status = 200,
@@ -88,17 +113,35 @@ pub fn main(init: std.process.Init) !void {
     try app_router.get("/health", handleHealth);
     try app_router.get("/echo", handleEchoGet);
     try app_router.post("/echo", handleEchoPost);
+    try app_router.get("/json", handleJson);
     try app_router.get("/blob", handleBlob);
 
+    // Reverse proxy from config (gateway / load-balancer scenarios): when the
+    // config declares upstreams + routes, build a Proxy so paths not handled by
+    // the app router (e.g. /api/users) are proxied to the backends. Without this
+    // the app 404s every proxy path. Mirrors the bare engine (src/main.zig).
+    var proxy_ptr: ?*swerver.proxy.handler.Proxy = null;
+    if (loaded_config) |lc| {
+        if (lc.routes.len > 0 and lc.upstreams.len > 0) {
+            const p = try allocator.create(swerver.proxy.handler.Proxy);
+            p.* = try swerver.proxy.handler.Proxy.init(allocator, .{
+                .upstreams = lc.upstreams,
+                .routes = lc.routes,
+            });
+            proxy_ptr = p;
+        }
+    }
+
     if (cfg.workers != 1) {
-        var master = try swerver.Master.init(allocator, cfg, app_router, null);
+        var master = try swerver.Master.init(allocator, cfg, app_router, proxy_ptr);
         defer master.deinit();
         try master.run(null);
     } else {
-        const srv = try swerver.ServerBuilder
+        var builder = swerver.ServerBuilder
             .config(cfg)
-            .router(app_router)
-            .build(allocator);
+            .router(app_router);
+        if (proxy_ptr) |p| builder = builder.withProxy(p);
+        const srv = try builder.build(allocator);
         defer {
             srv.deinit();
             allocator.destroy(srv);

@@ -7,12 +7,16 @@ pub fn build(b: *std.Build) void {
     // h1-only: the k6 scenarios are plaintext HTTP on :8080, so we skip
     // tls/http2/http3 (and their OpenSSL/QUIC link deps). io_uring is always-on
     // in swerver regardless of the build flag.
+    // Full protocol support so ONE binary serves every suite: h1 plaintext,
+    // TLS + HTTP/2 (tls-http2), HTTP/3/QUIC (http3), and reverse proxy (gateway/
+    // load-balancer). Each scenario's config selects the listeners it needs.
     const swerver_dep = b.dependency("swerver", .{
         .target = target,
         .optimize = optimize,
-        // h1 plaintext only: no tls/h2/h3, and no compression (drops the zlib
-        // link dep). io_uring stays always-on in swerver regardless.
-        .@"enable-compression" = false,
+        .@"enable-tls" = true,
+        .@"enable-http2" = true,
+        .@"enable-http3" = true,
+        .@"enable-proxy" = true,
     });
 
     const exe_module = b.createModule(.{
@@ -24,7 +28,7 @@ pub fn build(b: *std.Build) void {
     exe_module.addImport("swerver", swerver_dep.module("swerver"));
 
     const exe = b.addExecutable(.{
-        .name = "swerver-bench",
+        .name = "swerver",
         .root_module = exe_module,
     });
     b.installArtifact(exe);
