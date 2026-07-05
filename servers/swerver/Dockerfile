@@ -1,73 +1,58 @@
-# Build stage. We use Debian Trixie because it ships OpenSSL 3.5+,
-# which has SSL_set_quic_tls_cbs / SSL_set_quic_tls_transport_params —
-# the QUIC TLS callback API swerver's HTTP/3 stack uses. Bookworm's
-# OpenSSL 3.0.x doesn't have those symbols and the link fails when
-# h3 is enabled. Bookworm still works for h1-only builds, but Trixie
-# works for both, so we use it everywhere.
+# Build stage. Debian Trixie (matches the runtime for glibc parity). No OpenSSL
+# needed: the benchmark app is h1 plaintext only (see app/build.zig).
 FROM debian:trixie-slim AS builder
 
-# Install Zig and build tools
+# Install Zig and build tools.
 ARG ZIG_PACKAGE=zig-aarch64-linux-0.16.0
 ARG ZIG_URL=https://ziglang.org/download/0.16.0/${ZIG_PACKAGE}.tar.xz
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl xz-utils git libssl-dev zlib1g-dev ca-certificates && \
+    apt-get install -y --no-install-recommends curl xz-utils git ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     curl -L "${ZIG_URL}" | tar -xJ && \
     mv "${ZIG_PACKAGE}" /zig
-
 ENV PATH="/zig:${PATH}"
 
-# Clone swerver (or use local copy if provided)
+# swerver source selection:
+#   - local working tree  -> set USE_LOCAL_SWERVER=1 (the runner rsyncs it into
+#     servers/swerver/swerver-src, copied here as /build/swerver-local)
+#   - a git ref (default)  -> clone SWERVER_REF (e.g. main, or a tag baseline)
 ARG SWERVER_REPO=https://github.com/justinGrosvenor/swerver.git
 ARG SWERVER_REF=main
-ARG SWERVER_LOCAL_PATH=
-
 WORKDIR /build
 
-# If local path provided, copy from context; otherwise clone from git
-RUN if [ -n "${SWERVER_LOCAL_PATH}" ]; then \
+# The glob is a no-op when swerver-src is absent (git-ref mode); when present
+# (local mode) it lands the working tree under /build/swerver-local.
+COPY swerver-src* /build/swerver-local/
+RUN if [ -d /build/swerver-local ] && [ -n "$(ls -A /build/swerver-local 2>/dev/null)" ]; then \
         echo "Using local swerver from build context"; \
+        mv /build/swerver-local /build/swerver && echo "local" > /build/git-ref.txt; \
     else \
-        git clone ${SWERVER_REPO} swerver && \
-        cd swerver && \
-        git checkout ${SWERVER_REF} && \
+        rm -rf /build/swerver-local; \
+        echo "Cloning swerver ${SWERVER_REF}"; \
+        git clone "${SWERVER_REPO}" /build/swerver && \
+        cd /build/swerver && git checkout "${SWERVER_REF}" && \
         git rev-parse HEAD > /build/git-ref.txt; \
     fi
 
-# Copy local swerver if provided via build context
-COPY swerver-src* /build/swerver-local/
-RUN if [ -d "/build/swerver-local" ] && [ "$(ls -A /build/swerver-local 2>/dev/null)" ]; then \
-        rm -rf /build/swerver && \
-        mv /build/swerver-local /build/swerver && \
-        echo "local" > /build/git-ref.txt; \
-    fi
+# Build the benchmark app (registers /health, /echo, /blob against the harness's
+# contract) linked against that swerver library (../swerver).
+COPY app /build/app
+WORKDIR /build/app
+RUN zig build
 
-# Build with release optimizations.
-# Fail loudly on build error rather than silently falling back to a slower
-# optimization mode (which would produce misleading benchmark numbers).
-WORKDIR /build/swerver
-ARG ZIG_BUILD_FLAGS=""
-RUN zig build -Doptimize=ReleaseFast ${ZIG_BUILD_FLAGS}
-
-# Runtime stage — Trixie too, so libssl.so.3 matches the build target.
+# Runtime stage.
 FROM debian:trixie-slim
-
 RUN apt-get update && \
-    apt-get install -y ca-certificates curl wget && \
+    apt-get install -y --no-install-recommends ca-certificates curl wget && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/swerver/zig-out/bin/swerver /usr/local/bin/swerver
+COPY --from=builder /build/app/zig-out/bin/swerver-bench /usr/local/bin/swerver-bench
 COPY --from=builder /build/git-ref.txt /app/git-ref.txt
+COPY config.json /app/config.json
 
 WORKDIR /app
-
-# Generate static test files for H2 file-serving benchmarks
-RUN mkdir -p /app/static && \
-    dd if=/dev/urandom of=/app/static/small.txt bs=1024 count=1 2>/dev/null && \
-    dd if=/dev/urandom of=/app/static/medium.css bs=1024 count=32 2>/dev/null && \
-    dd if=/dev/urandom of=/app/static/large.js bs=1024 count=128 2>/dev/null && \
-    dd if=/dev/urandom of=/app/static/image.bin bs=1024 count=512 2>/dev/null
-
 EXPOSE 8080
 
-CMD ["swerver"]
+# Serve the benchmark endpoints (the bare `swerver` engine has no routes and
+# would 404 the health check).
+CMD ["swerver-bench", "--config", "/app/config.json"]

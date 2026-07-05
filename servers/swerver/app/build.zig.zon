@@ -1,0 +1,14 @@
+.{
+    .name = .swerver_bench,
+    .version = "0.1.0",
+    .fingerprint = 0xb6c02af47f36ea1b,
+    .minimum_zig_version = "0.16.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+    },
+    .dependencies = .{
+        .swerver = .{ .path = "../swerver" },
+    },
+}

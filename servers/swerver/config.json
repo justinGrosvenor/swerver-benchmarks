@@ -1,0 +1,13 @@
+{
+  "server": {
+    "address": "0.0.0.0",
+    "port": 8080,
+    "workers": 0,
+    "max_connections": 1024,
+    "disable_middleware": true
+  },
+  "buffer_pool": {
+    "buffer_size": 65536,
+    "buffer_count": 2048
+  }
+}
