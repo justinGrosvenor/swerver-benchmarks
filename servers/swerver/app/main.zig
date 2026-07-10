@@ -14,6 +14,12 @@
 //! Built against the swerver library as a dependency (../swerver), so it tracks
 //! whatever swerver source the Dockerfile checked out (local working tree, a
 //! git ref, or the pinned baseline).
+//!
+//! Lifecycle (config loading, reverse-proxy construction from the config's
+//! upstreams/routes, Master vs single-process dispatch) is
+//! swerver.bootstrap.run - the exact path the swerver binary takes, so the
+//! benchmark measures the shipped bootstrap, not a hand-rolled copy.
+//! Requires a swerver checkout that has swerver.bootstrap (>= alpha.26).
 
 const std = @import("std");
 const swerver = @import("swerver");
@@ -92,22 +98,7 @@ fn handleBlob(_: *router.HandlerContext) response_mod.Response {
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
-    const args = try parseArgs(init.minimal.args, allocator);
-
-    var loaded_config: ?swerver.config_file.LoadedConfig = null;
-    defer if (loaded_config) |*lc| lc.deinit();
-
-    var cfg: swerver.config.ServerConfig = blk: {
-        if (args.config_path) |path| {
-            loaded_config = swerver.config_file.loadConfigFile(allocator, path) catch |err| {
-                std.log.err("failed to load config: {}", .{err});
-                return err;
-            };
-            break :blk loaded_config.?.server_config;
-        }
-        break :blk swerver.config.ServerConfig.default();
-    };
-    try cfg.validate();
+    const args = try swerver.bootstrap.parseArgs(init.minimal.args, allocator);
 
     var app_router = router.Router.init(.{});
     try app_router.get("/health", handleHealth);
@@ -116,53 +107,7 @@ pub fn main(init: std.process.Init) !void {
     try app_router.get("/json", handleJson);
     try app_router.get("/blob", handleBlob);
 
-    // Reverse proxy from config (gateway / load-balancer scenarios): when the
-    // config declares upstreams + routes, build a Proxy so paths not handled by
-    // the app router (e.g. /api/users) are proxied to the backends. Without this
-    // the app 404s every proxy path. Mirrors the bare engine (src/main.zig).
-    var proxy_ptr: ?*swerver.proxy.handler.Proxy = null;
-    if (loaded_config) |lc| {
-        if (lc.routes.len > 0 and lc.upstreams.len > 0) {
-            const p = try allocator.create(swerver.proxy.handler.Proxy);
-            p.* = try swerver.proxy.handler.Proxy.init(allocator, .{
-                .upstreams = lc.upstreams,
-                .routes = lc.routes,
-            });
-            proxy_ptr = p;
-        }
-    }
-
-    if (cfg.workers != 1) {
-        var master = try swerver.Master.init(allocator, cfg, app_router, proxy_ptr);
-        defer master.deinit();
-        try master.run(null);
-    } else {
-        var builder = swerver.ServerBuilder
-            .config(cfg)
-            .router(app_router);
-        if (proxy_ptr) |p| builder = builder.withProxy(p);
-        const srv = try builder.build(allocator);
-        defer {
-            srv.deinit();
-            allocator.destroy(srv);
-        }
-        try srv.run(null);
-    }
-}
-
-const Args = struct { config_path: ?[]const u8 = null };
-
-fn parseArgs(args: std.process.Args, allocator: std.mem.Allocator) !Args {
-    var result: Args = .{};
-    var it = try std.process.Args.Iterator.initAllocator(args, allocator);
-    defer it.deinit();
-    _ = it.next();
-    while (it.next()) |arg_z| {
-        const arg = std.mem.sliceTo(arg_z, 0);
-        if (std.mem.eql(u8, arg, "--config")) {
-            const value = it.next() orelse return error.MissingValue;
-            result.config_path = std.mem.sliceTo(value, 0);
-        }
-    }
-    return result;
+    var opts = swerver.bootstrap.optionsFromArgs(&args);
+    opts.router = app_router;
+    try swerver.bootstrap.run(allocator, opts);
 }
