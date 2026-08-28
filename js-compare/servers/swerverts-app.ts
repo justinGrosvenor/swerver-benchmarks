@@ -20,7 +20,8 @@ try {
   dataset = (await Bun.file(datasetPath).json()) as Item[];
 } catch {}
 
-const app = new Swerver({ port, staticRoot: staticDir });
+const backend = process.env["BACKEND"] === "ffi" ? "ffi" : "socket";
+const app = new Swerver({ port, staticRoot: staticDir, backend });
 
 app.get("/pipeline", () => new Response("ok", { headers: { "content-type": "text/plain" } }));
 

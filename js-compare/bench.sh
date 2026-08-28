@@ -34,6 +34,7 @@ WARMUP="${WARMUP:-3}"
 JSON_COUNT="${JSON_COUNT:-20}"
 STATIC_FILE="${STATIC_FILE:-asset.html}"
 SWERVER_BIN="${SWERVER_BIN:-$HOME/swerver/zig-out/bin/swerver}"
+SWERVER_LIB="${SWERVER_LIB:-$HOME/swerver/zig-out/lib/libswerver.dylib}"
 DATASET_PATH="${DATASET_PATH:-$ROOT/data/dataset.json}"
 STATIC_DIR="${STATIC_DIR:-$ROOT/data/static}"
 
@@ -44,8 +45,9 @@ OUTDIR="$ROOT/results/$STAMP"
 mkdir -p "$OUTDIR"
 SUMMARY="$OUTDIR/summary.txt"
 
-# "bun" is the vendored HttpArena tuned Bun entry.
-port_for() { case "$1" in express) echo 3001;; bun) echo 3002;; swerverts) echo 8080;; esac; }
+# "bun" is the vendored HttpArena tuned Bun entry; "swerverts" is the socket
+# backend, "swerverts-ffi" the in-process libswerver (FFI) backend.
+port_for() { case "$1" in express) echo 3001;; bun) echo 3002;; swerverts) echo 8080;; swerverts-ffi) echo 8081;; esac; }
 
 start_server() {
   local name="$1" port="$2"
@@ -53,6 +55,7 @@ start_server() {
     express)   PORT="$port" DATASET_PATH="$DATASET_PATH" STATIC_DIR="$STATIC_DIR" node servers/express.mjs ;;
     bun)       PORT="$port" DATASET_PATH="$DATASET_PATH" STATIC_DIR="$STATIC_DIR" bun run servers/httparena-bun.ts ;;
     swerverts) SWERVER_BIN="$SWERVER_BIN" PORT="$port" DATASET_PATH="$DATASET_PATH" STATIC_DIR="$STATIC_DIR" bun run servers/swerverts-app.ts ;;
+    swerverts-ffi) BACKEND=ffi SWERVER_BIN="$SWERVER_BIN" SWERVER_LIB="$SWERVER_LIB" PORT="$port" DATASET_PATH="$DATASET_PATH" STATIC_DIR="$STATIC_DIR" bun run servers/swerverts-app.ts ;;
   esac >"$OUTDIR/$name.server.log" 2>&1 &
   echo $!
 }
