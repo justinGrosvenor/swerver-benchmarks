@@ -1,0 +1,15 @@
+{
+  "name": "swerverts-js-compare",
+  "private": true,
+  "type": "module",
+  "description": "Local wrk comparison: Express (Node) vs swerverts (swerver+Bun) vs a pure Bun.serve baseline.",
+  "scripts": {
+    "express": "node servers/express.mjs",
+    "bun": "bun run servers/httparena-bun.ts",
+    "swerverts": "bun run servers/swerverts-app.ts"
+  },
+  "dependencies": {
+    "express": "^5.0.0",
+    "swerverts": "file:../../swerverts"
+  }
+}
