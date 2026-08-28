@@ -35,8 +35,8 @@ app.get("/baseline11", (req) => {
   return new Response(String(sum), { headers: { "content-type": "text/plain" } });
 });
 
-app.get("/json/:count", (req, { params }) => {
-  let count = parseInt(params.count, 10);
+app.get("/json/:count", (req, ctx) => {
+  let count = parseInt(ctx.params.count, 10);
   if (!(count > 0)) count = 0;
   if (count > dataset.length) count = dataset.length;
   const m = parseInt(new URL(req.url).searchParams.get("m") ?? "1", 10) || 1;
@@ -45,7 +45,10 @@ app.get("/json/:count", (req, { params }) => {
     const d = dataset[i]!;
     items[i] = { ...d, total: d.price * d.quantity * m };
   }
-  return Response.json({ items, count });
+  // ctx.json takes the FFI direct-write path (serialize straight into the slot's
+  // response buffer), swerverts' native json responder. Response.json would fall
+  // back to the arrayBuffer + respond copy path.
+  return ctx.json({ items, count });
 });
 
 const server = await app.start();
