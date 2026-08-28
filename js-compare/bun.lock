@@ -6,7 +6,7 @@
       "name": "swerverts-js-compare",
       "dependencies": {
         "express": "^5.0.0",
-        "swerverts": "file:../../swerverts",
+        "swerverts": "file:../../swerver-ts",
       },
     },
   },
@@ -173,7 +173,7 @@
 
     "statuses": ["statuses@2.0.2", "", {}, "sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw=="],
 
-    "swerverts": ["swerverts@file:../../swerverts", { "devDependencies": { "@types/node": "^26.4.0", "typescript": "^7.0.2", "zod": "^4.4.3" } }],
+    "swerverts": ["swerverts@file:../../swerver-ts", { "devDependencies": { "@types/node": "^26.4.0", "typescript": "^7.0.2", "zod": "^4.4.3" } }],
 
     "toidentifier": ["toidentifier@1.0.1", "", {}, "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="],
 
